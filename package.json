@@ -1,0 +1,28 @@
+{
+  "name": "sigat",
+  "version": "1.0.0",
+  "description": "Sistema de informação SIGAT com upload e pesquisa de mapas",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev:client": "vite --config frontend/vite.config.js",
+    "build:client": "vite build --config frontend/vite.config.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "uuid": "^13.0.0",
+    "vue": "^3.5.13",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^5.4.14"
+  }
+}
