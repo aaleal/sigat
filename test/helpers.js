@@ -64,8 +64,8 @@ async function parar() {
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
-async function api(method, url, { token, body, form } = {}) {
-  const headers = {};
+async function api(method, url, { token, body, form, headers: extra } = {}) {
+  const headers = { ...(extra || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   let payload;
   if (form) {

@@ -1,6 +1,6 @@
 # API REST
 
-Base: `/api`. JSON, erros no formato `{ message, erros? }` (`erros` = mensagens por campo em validações). Auth: `Authorization: Bearer <jwt>` (payload `{sub, username, role}`, expira 8h). Todas as rotas exigem token exceto `health` e `login`.
+Base: `/api`. JSON, erros no formato `{ message, erros? }` (`erros` = mensagens por campo em validações). Auth: `Authorization: Bearer <jwt>` (payload `{sub, username, role, sv}`; a duração é a configurada, 8h por omissão; `sv` = versão de sessão, incrementada ao trocar/repor password ou terminar sessões, o que invalida tokens antigos). Todas as rotas exigem token exceto `health`, `auth/login`, `auth/politica`, `auth/recuperar*` e `auth/sso*`.
 
 ## Modelo de resposta de um documento ("entrada")
 Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (UUID, usar nas mutações), `numero` (= `sourceEntryNumber`, "ID SIGAT" visível, nunca reutilizado), `colecao`, `estado`, `estadoMeta` (empréstimo ativo: `{emprestimoId, requisitante, entidade, dataSaida, dataPrevista, registadoPor}` ou `null`), `createdAt/By`, `updatedAt/By`, `estadoChangedAt/By`, `deletedAt/By`. As respostas de listas vêm de uma cache em memória por coleção (invalidada em cada escrita): não alterar os objetos.
@@ -9,11 +9,32 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 | Método | Rota | Role | Notas |
 |---|---|---|---|
 | GET | `/health` | — | |
-| POST | `/auth/login` | — | `{username,password}` → `{token,user}`; username case-insensitive |
+| POST | `/auth/login` | — | `{username,password}` → `{token,user}`; username case-insensitive; 429 com bloqueio da conta (limite configurável) |
 | GET | `/auth/me` | any | inclui `trocarPassword` |
-| POST | `/auth/password` | any | `{atual, nova}` (mín. 8); enquanto `trocarPassword` for verdadeiro só esta rota e `/auth/me` respondem (as outras dão 403 com `trocarPassword:true`) |
-| GET/POST | `/users` | admin | criar: `{username,password,role}`; 409 se existir |
-| PATCH | `/users/:id/password` | admin | mínimo 8 caracteres; obriga o utilizador a trocar no próximo login |
+| POST | `/auth/password` | any | `{atual, nova}` (política configurável); devolve `{message, token}` (as outras sessões terminam: guardar o token novo); enquanto `trocarPassword` for verdadeiro só esta rota e `/auth/me` respondem (as outras dão 403 com `trocarPassword:true`) |
+| GET | `/auth/politica` | — | `{passwordMin, passwordComplexa, sessaoHoras}` |
+| POST | `/auth/recuperar/pedir` | — | `{username}`; resposta sempre igual (não revela se a conta existe); regista pedido para o admin |
+| POST | `/auth/recuperar` | — | `{username, codigo, nova}`; código `XXXX-XXXX` de uso único emitido pelo admin; 5 tentativas erradas invalidam-no |
+| GET | `/auth/sso/estado` | — | `{ativo, logoutUrl}` |
+| POST | `/auth/sso` | — | exige cabeçalho `x-sigat-sso-secret` = `SSO_SEGREDO` e o cabeçalho de identidade `SSO_HEADER` injetados pelo proxy; devolve `{token,user}` |
+| GET/POST | `/users` | admin | criar: `{username,password,role}`; 409 se existir; `GET` inclui `origem` (`local`/`sso`) e `bloqueadoAte` |
+| PATCH | `/users/:id/password` | admin | política de passwords; obriga o utilizador a trocar no próximo login |
+| PATCH | `/users/:id/role` | admin | `{role}`; não deixa ficar sem administradores |
+| POST | `/users/:id/desbloquear`, `/users/:id/revogar-sessoes` | admin | |
+| POST | `/users/:id/recuperacao` | admin | emite código de recuperação `{codigo, expiraEm}` (mostrado uma só vez) |
+| GET | `/admin/recuperacoes` | admin | pedidos de recuperação ainda sem código |
+| GET/PUT | `/admin/configuracao` | admin | `{valores, limites}`; PUT valida (400 com `erros` por chave): sessão, passwords, bloqueio, backups, retenção, modelo PDF, modelo de URL de imagens |
+| GET | `/configuracao/publica` | any | só modelo de impressão (`pdf_*`) e `imagens_url_modelo` |
+| GET | `/admin/estado` | admin | tamanho da BD, contagens, última cópia, HTTPS/SSO |
+| GET/POST | `/admin/backups` | admin | listar / criar cópia (verificada com `quick_check`) |
+| GET | `/admin/backups/:nome` | admin | descarrega a cópia (nome validado `sigat-AAAAMMDD-HHMMSS[-n].db`) |
+| POST | `/admin/manutencao/purgar` | admin | aplica já a retenção do Histórico e da auditoria |
+| GET | `/admin/auditoria` | admin | `limite`, `acao?` |
+| GET/PUT/DELETE | `/carrinho`, `/carrinho/:documentoId` | any | carrinho de impressão pessoal (máx. 500); `DELETE /carrinho` limpa |
+| GET | `/documentos/:id/anexos` | any | `{items:[{id,tipo:'ficheiro'|'ligacao',nome,legenda,url,mime,tamanho,temMiniatura}]}` |
+| POST | `/documentos/:id/anexos` | admin,write | multipart `file` (+ `miniatura` JPEG ≤300 KB, `legenda`) ou JSON `{url,nome?,legenda?}` (só http/https); formato validado pelos bytes (JPEG, PNG, GIF, WebP, TIFF, PDF; SVG/HTML recusados), ≤25 MB, ≤50 por documento |
+| GET | `/anexos/:id/ficheiro` | any | `?miniatura=1`; imagens inline, PDF/TIFF como descarga; `nosniff` + CSP `sandbox` |
+| PATCH/DELETE | `/anexos/:id` | admin,write | legenda / remover (regista `anexo` no histórico do documento) |
 | DELETE | `/users/:id` | admin | não pode apagar-se a si próprio |
 | GET | `/colecoes` | any | `[{id, nome, total}]` (`cartografia`, `aturb`) |
 | GET | `/colecoes/:colecao/campos` | any | definição dos campos (rótulo, peso, numérico, obrigatório, aliases…) |

@@ -31,3 +31,16 @@ Formato: decisão — motivo/contexto.
 25. **Exportação** com proteção contra injeção de fórmulas (`'` antes de `=+-@`), CSV UTF-8 com BOM e `;`.
 26. **Auth**: role e existência do utilizador lidos da BD em cada pedido (revogação imediata); password inicial provisória obriga a troca; mínimo 8 caracteres; 5 falhas/15 min por IP+utilizador.
 27. **Edição**: só se recusa esvaziar um campo obrigatório já preenchido (documentos antigos sem autor continuam editáveis); `''` limpa campos opcionais.
+
+## Decisões de operação, segurança e utilização (2026-11)
+28. **Parâmetros em BD** (`configuracoes`, chave/valor com limites em `src/config.js`) e não em variáveis de ambiente, para o admin os alterar sem reiniciar; segredos e infraestrutura (JWT, TLS, SSO, pasta de cópias) ficam em env.
+29. **Recuperação de password sem SMTP**: pedido público (resposta uniforme) + código de uso único emitido pelo admin; evita depender de email e de enumeração de contas. Guardado só o hash SHA-256; 5 tentativas; validade configurável.
+30. **Sessões revogáveis**: `sessao_versao` por utilizador no JWT (`sv`); trocar/repor password, recuperar e "terminar sessões" incrementam-na. A troca de password devolve token novo.
+31. **Bloqueio de conta na BD** + limitador em memória; mesma mensagem para conta inexistente/bloqueada, hash fictício para igualar tempos.
+32. **SSO por proxy** (cabeçalho + segredo partilhado) em vez de OIDC/SAML nativo: serve IIS/Windows, oauth2-proxy e Easy Auth sem dependências novas. Contas SSO (`origem='sso'`) não têm password local.
+33. **Cópias**: API de backup do SQLite (consistente com a BD em uso) + `quick_check`; retenção por número de cópias; agendador interno (sem cron) que só corre no processo do servidor. Anexos ficam fora da cópia da BD.
+34. **Retenção do Histórico** opcional (0 = para sempre; ≥90 dias); a purga corre depois da cópia do ciclo. Auditoria de acessos separada do Histórico (`auditoria`, 365 dias por omissão).
+35. **Anexos**: tipo detetado pelos bytes (não pelo mime/extensão), sem SVG/HTML, servidos com `nosniff` e CSP `sandbox`, atrás de autenticação (o frontend lê-os com `fetch` + blob). Miniaturas geradas no browser para não acrescentar uma dependência nativa (sharp). Ligações externas só http(s).
+36. **Carrinho no servidor** (`carrinhos`) em vez de `localStorage`: acompanha o utilizador entre dispositivos e não fica na máquina partilhada.
+37. **Ficha PDF com modelo**: cabeçalho/rodapé/cor/logo guardados em configuração (logo como data URL PNG/JPEG ≤ ~300 KB validado pelos bytes) e lidos por qualquer utilizador autenticado.
+38. **Cabeçalhos HTTP**: CSP restritiva (`script-src 'self'`), `X-Frame-Options: DENY`, HSTS com `FORCE_HTTPS=1`; CORS fechado em produção.

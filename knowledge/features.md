@@ -4,13 +4,13 @@
 | Role | Pode |
 |---|---|
 | `read` | Login, pesquisar/consultar Cartografia e ATURB, ver detalhe, exportar (Excel/CSV/PDF), ver Painel e Empréstimos |
-| `write` | + criar/editar/eliminar entradas, alterar estado, registar empréstimos/devoluções, lixo/restauro, histórico |
-| `admin` | + importações de Excel, gestão de contas (criar, apagar, repor password) |
+| `write` | + criar/editar/eliminar entradas, alterar estado, registar empréstimos/devoluções, anexar/remover imagens e ligações, lixo/restauração, histórico |
+| `admin` | + importações de Excel, gestão de contas (criar, apagar, repor password, perfis, desbloquear, terminar sessões, códigos de recuperação), Administração (configuração, cópias, auditoria) |
 
 A API aplica as mesmas regras (importações e contas só `admin`; escrita `admin`/`write`; lixo e histórico `admin`/`write`). `canManageEntries`/`canEditEstado` = `write` ou `admin`.
 
 ## Menu (sidebar, colapsável)
-Menu: **Painel** (página inicial), **Cartografia**, **ATURB**, Importações (admin), **Empréstimos** (badge de atrasos), Gestão de Contas (admin). Ferramentas: **Impressão PDF** (com contador), Lixo (write/admin), Histórico (write/admin). No rodapé: Alterar password e Terminar sessão.
+Menu: **Painel** (página inicial), **Cartografia**, **ATURB**, Importações (admin), **Empréstimos** (badge de atrasos), Gestão de Contas (admin; badge com pedidos de recuperação), Administração (admin). Ferramentas: **Impressão PDF** (com contador), Lixo (write/admin), Histórico (write/admin), **Ajuda**. No rodapé: Alterar password e Terminar sessão.
 
 ## Cartografia (pesquisa)
 - Coleção fixa (sem seletor de fonte).
@@ -57,7 +57,16 @@ Indicadores (todos os perfis) por coleção e período (30/90/365 dias/tudo): do
 Botão "Exportar" nas barras de resultados de Cartografia e ATURB: exporta **todos** os resultados da pesquisa/filtros atuais (sem paginação) em `.xlsx` (folha SIGAT + folha Critérios) ou `.csv` (UTF-8 com BOM, `;`). Inclui coluna `ID SIGAT`, Estado, Requisitante e Data de saída. Valores que começam por `=+-@` são protegidos contra injeção de fórmulas. No carrinho de impressão há um botão por fonte para exportar só os selecionados.
 
 ## Impressão PDF
-Carrinho em memória (perde-se ao recarregar a página) com entradas de Cartografia e ATURB misturadas. "Imprimir PDF" abre nova janela com cartões formatados e chama `window.print()` (o utilizador escolhe "Guardar como PDF"). Requer pop-ups permitidos.
+O carrinho é guardado no servidor, por utilizador (sobrevive ao fim da sessão e muda de dispositivo; documentos eliminados desaparecem). Contém entradas de Cartografia e ATURB misturadas. "Imprimir PDF" (e "Imprimir ficha" no detalhe de um registo) abre nova janela com cartões e chama `window.print()` (o utilizador escolhe "Guardar como PDF"); requer pop-ups permitidos. O cabeçalho (2 linhas), logótipo PNG/JPEG, cor e rodapé vêm da configuração (Administração → Modelo de impressão); opção "Incluir miniaturas" junta até 4 miniaturas por ficha. Gerado em `frontend/src/fichaPdf.js` (todo o conteúdo escapado).
+
+## Imagens digitalizadas (anexos)
+No detalhe de cada registo (`Anexos.vue`): carregar ficheiros (JPEG/PNG/GIF/WebP/TIFF/PDF, ≤25 MB) — a miniatura JPEG de 320 px é criada no browser (canvas) — e adicionar ligações http(s). Clique na miniatura abre a imagem; PDF/TIFF descarregam. Se `imagens_url_modelo` estiver configurado (ex.: `https://servidor/{nrRegisto}.jpg`) aparece o botão "Abrir digitalização no repositório" (só se todos os campos do modelo estiverem preenchidos). Ler: todos; anexar/remover: write/admin.
+
+## Administração (admin)
+Página com abas: Estado (BD, contagens, HTTPS/SSO), Segurança e sessões (duração da sessão, tamanho/complexidade/validade das passwords, bloqueio), Cópias e retenção (cópias automáticas e manuais, download, retenção do Histórico e da auditoria), Modelo de impressão, Imagens (modelo de URL) e Auditoria (logins, falhas, bloqueios, recuperações, alterações de perfis/configuração, cópias).
+
+## Ajuda
+Página "Ajuda" (todos os perfis, `Ajuda.vue`): guia rápido por perfil (Leitura/Escrita/Administrador), matriz "quem pode fazer o quê" e roteiro de formação curta. O texto está no próprio componente: atualizar ao mudar permissões.
 
 ## Autenticação (UX)
-Login por username/password; token de 8h em `localStorage`. Sem recuperação de password; admin repõe passwords. Admin não pode apagar a própria conta.
+Login por username/password; token em `localStorage` com duração configurável (8h por omissão); ao receber 401 a app termina a sessão e avisa. Conta bloqueada após N tentativas falhadas (admin pode desbloquear). "Esqueci-me da password": o utilizador pede, o admin vê o pedido em Gestão de Contas (badge) e gera um código de uso único (válido 60 min por omissão) que entrega por outro canal; o utilizador define a nova password no ecrã de entrada. Com SSO por proxy ativo, a app tenta entrar automaticamente e mostra "Entrar com a conta da organização". Admin não pode apagar a própria conta nem retirar-se do perfil de único admin.

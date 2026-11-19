@@ -1,93 +1,101 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const utilizadores = require('../db/repos/utilizadores');
-const { buildToken, authMiddleware, requireRole, comErros } = require('../auth');
+const recuperacoes = require('../db/repos/recuperacoes');
+const auditoria = require('../db/repos/auditoria');
+const config = require('../config');
+const limitadores = require('../limitadores');
+const { validarPassword } = require('../politicaPasswords');
+const { authMiddleware, requireRole, comErros } = require('../auth');
 
 const router = express.Router();
+const admin = [authMiddleware, requireRole('admin')];
+const ROLES = ['admin', 'write', 'read'];
 
-const PASSWORD_MIN = 8;
-const validarPassword = (p) => (String(p || '').length >= PASSWORD_MIN ? null : `A password deve ter pelo menos ${PASSWORD_MIN} caracteres.`);
+const utilizadorOu404 = (req, res) => {
+  const u = utilizadores.obterPorId(req.params.id);
+  if (!u) res.status(404).json({ message: 'Utilizador não encontrado.' });
+  return u;
+};
 
-// Limita tentativas falhadas de login (em memória): 5 por IP+utilizador em 15 minutos.
-const falhas = new Map();
-const JANELA_MS = 15 * 60 * 1000;
-const MAX_FALHAS = 5;
-const chaveFalhas = (req, username) => `${req.ip}|${String(username).toLowerCase()}`;
-function bloqueado(chave) {
-  const f = falhas.get(chave);
-  if (!f) return false;
-  if (Date.now() - f.desde > JANELA_MS) { falhas.delete(chave); return false; }
-  return f.n >= MAX_FALHAS;
-}
-function registarFalha(chave) {
-  const f = falhas.get(chave);
-  if (!f || Date.now() - f.desde > JANELA_MS) falhas.set(chave, { n: 1, desde: Date.now() });
-  else f.n += 1;
-}
+router.get('/users', ...admin, (_req, res) => res.json(utilizadores.listar()));
 
-router.post('/auth/login', comErros(async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ message: 'Username e password são obrigatórios.' });
-
-  const chave = chaveFalhas(req, username);
-  if (bloqueado(chave)) return res.status(429).json({ message: 'Demasiadas tentativas falhadas. Tente novamente dentro de alguns minutos.' });
-
-  const user = utilizadores.obterPorUsername(username);
-  if (!user || !(await bcrypt.compare(String(password), user.password_hash))) {
-    registarFalha(chave);
-    return res.status(401).json({ message: 'Credenciais inválidas.' });
-  }
-  falhas.delete(chave);
-  return res.json({ token: buildToken(user), user: utilizadores.paraApi(user) });
-}));
-
-// Altera a própria password (obrigatório no primeiro acesso com a password inicial).
-router.post('/auth/password', authMiddleware, comErros(async (req, res) => {
-  const { atual, nova } = req.body || {};
-  const user = utilizadores.obterPorId(req.user.sub);
-  if (!user || !(await bcrypt.compare(String(atual || ''), user.password_hash))) {
-    return res.status(400).json({ message: 'A password atual está incorreta.' });
-  }
-  const erro = validarPassword(nova);
-  if (erro) return res.status(400).json({ message: erro });
-  if (String(nova) === String(atual)) return res.status(400).json({ message: 'A nova password tem de ser diferente da atual.' });
-  utilizadores.definirPassword(user.id, await bcrypt.hash(String(nova), 10), false);
-  return res.json({ message: 'Password alterada com sucesso.' });
-}));
-
-router.get('/auth/me', authMiddleware, comErros(async (req, res) => {
-  const user = utilizadores.obterPorId(req.user.sub);
-  if (!user) return res.status(404).json({ message: 'Utilizador não encontrado.' });
-  return res.json(utilizadores.paraApi(user));
-}));
-
-router.get('/users', authMiddleware, requireRole('admin'), (_req, res) => res.json(utilizadores.listar()));
-
-router.post('/users', authMiddleware, requireRole('admin'), comErros(async (req, res) => {
+router.post('/users', ...admin, comErros(async (req, res) => {
   const { username, password, role } = req.body || {};
   if (!username || !password || !role) return res.status(400).json({ message: 'username, password e role são obrigatórios.' });
-  if (!['admin', 'write', 'read'].includes(role)) return res.status(400).json({ message: 'Role inválida. Use admin, write ou read.' });
-  const erroPassword = validarPassword(password);
+  if (!ROLES.includes(role)) return res.status(400).json({ message: 'Role inválida. Use admin, write ou read.' });
+  const nome = String(username).trim();
+  const erroPassword = validarPassword(password, nome);
   if (erroPassword) return res.status(400).json({ message: erroPassword });
-  if (utilizadores.obterPorUsername(String(username).trim())) return res.status(409).json({ message: 'Username já existe.' });
+  if (utilizadores.obterPorUsername(nome)) return res.status(409).json({ message: 'Username já existe.' });
 
   const passwordHash = await bcrypt.hash(String(password), 10);
-  return res.status(201).json(utilizadores.criar({ username: String(username).trim(), role, passwordHash }));
+  const criado = utilizadores.criar({ username: nome, role, passwordHash });
+  auditoria.registar({ utilizador: req.user.username, acao: 'utilizador_criado', ip: req.ip, detalhes: { username: nome, role } });
+  return res.status(201).json(criado);
 }));
 
-router.patch('/users/:id/password', authMiddleware, requireRole('admin'), comErros(async (req, res) => {
-  const { password } = req.body || {};
-  const erroPassword = validarPassword(password);
+router.patch('/users/:id/password', ...admin, comErros(async (req, res) => {
+  const user = utilizadorOu404(req, res);
+  if (!user) return undefined;
+  if (user.origem !== 'local') return res.status(400).json({ message: 'Conta gerida pela autenticação da organização.' });
+  const erroPassword = validarPassword(req.body?.password, user.username);
   if (erroPassword) return res.status(400).json({ message: erroPassword });
-  if (!utilizadores.definirPassword(req.params.id, await bcrypt.hash(String(password), 10), true)) {
-    return res.status(404).json({ message: 'Utilizador não encontrado.' });
-  }
+  utilizadores.definirPassword(user.id, await bcrypt.hash(String(req.body.password), 10), true);
+  auditoria.registar({ utilizador: req.user.username, acao: 'password_reposta', ip: req.ip, detalhes: { username: user.username } });
   return res.json({ message: 'Password atualizada com sucesso.' });
 }));
 
-router.delete('/users/:id', authMiddleware, requireRole('admin'), (req, res) => {
+router.patch('/users/:id/role', ...admin, comErros(async (req, res) => {
+  const user = utilizadorOu404(req, res);
+  if (!user) return undefined;
+  const { role } = req.body || {};
+  if (!ROLES.includes(role)) return res.status(400).json({ message: 'Role inválida. Use admin, write ou read.' });
+  if (user.role === 'admin' && role !== 'admin' && utilizadores.contarAdmins() <= 1) {
+    return res.status(400).json({ message: 'Tem de existir pelo menos um administrador.' });
+  }
+  utilizadores.definirRole(user.id, role);
+  auditoria.registar({ utilizador: req.user.username, acao: 'role_alterada', ip: req.ip, detalhes: { username: user.username, de: user.role, para: role } });
+  return res.json(utilizadores.paraApi(utilizadores.obterPorId(user.id)));
+}));
+
+router.post('/users/:id/desbloquear', ...admin, comErros(async (req, res) => {
+  const user = utilizadorOu404(req, res);
+  if (!user) return undefined;
+  utilizadores.limparFalhas(user.id);
+  limitadores.login.limparUtilizador(user.username);
+  limitadores.recuperar.limparUtilizador(user.username);
+  auditoria.registar({ utilizador: req.user.username, acao: 'conta_desbloqueada', ip: req.ip, detalhes: { username: user.username } });
+  return res.json({ message: 'Conta desbloqueada.' });
+}));
+
+router.post('/users/:id/revogar-sessoes', ...admin, comErros(async (req, res) => {
+  const user = utilizadorOu404(req, res);
+  if (!user) return undefined;
+  utilizadores.revogarSessoes(user.id);
+  auditoria.registar({ utilizador: req.user.username, acao: 'sessoes_revogadas', ip: req.ip, detalhes: { username: user.username } });
+  return res.json({ message: 'Sessões terminadas.' });
+}));
+
+// Emite um código de recuperação de uso único para entregar ao utilizador (mostrado uma só vez).
+router.post('/users/:id/recuperacao', ...admin, comErros(async (req, res) => {
+  const user = utilizadorOu404(req, res);
+  if (!user) return undefined;
+  if (user.origem !== 'local') return res.status(400).json({ message: 'Conta gerida pela autenticação da organização.' });
+  const { recuperacao_validade_minutos: validade } = config.todas();
+  const emitido = recuperacoes.emitir(user.id, req.user.username, validade);
+  auditoria.registar({ utilizador: req.user.username, acao: 'recuperacao_emitida', ip: req.ip, detalhes: { username: user.username } });
+  return res.status(201).json({ username: user.username, ...emitido });
+}));
+
+router.get('/admin/recuperacoes', ...admin, (_req, res) => res.json({ items: recuperacoes.listarPedidos() }));
+
+router.delete('/users/:id', ...admin, (req, res) => {
+  const user = utilizadores.obterPorId(req.params.id);
   if (req.user.sub === req.params.id) return res.status(400).json({ message: 'Não pode apagar o próprio utilizador.' });
-  if (!utilizadores.apagar(req.params.id)) return res.status(404).json({ message: 'Utilizador não encontrado.' });
+  if (!user) return res.status(404).json({ message: 'Utilizador não encontrado.' });
+  utilizadores.apagar(user.id);
+  auditoria.registar({ utilizador: req.user.username, acao: 'utilizador_apagado', ip: req.ip, detalhes: { username: user.username } });
   return res.json({ message: 'Utilizador apagado com sucesso.' });
 });
 

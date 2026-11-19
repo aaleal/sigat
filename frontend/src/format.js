@@ -3,6 +3,11 @@ export function dataPt(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '');
 }
 
+export function dataHoraPt(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? (iso || '') : d.toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 export function hojeIso() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');

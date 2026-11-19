@@ -5,6 +5,10 @@ import EstadoControlo from './components/EstadoControlo.vue';
 import Emprestimos from './components/Emprestimos.vue';
 import Importacoes from './components/Importacoes.vue';
 import Painel from './components/Painel.vue';
+import Anexos from './components/Anexos.vue';
+import Administracao from './components/Administracao.vue';
+import Ajuda from './components/Ajuda.vue';
+import { abrirFicha } from './fichaPdf.js';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -51,6 +55,14 @@ const loginForm = reactive({
   username: '',
   password: '',
 });
+
+// Recuperação de password e SSO no ecrã de entrada
+const modoLogin = ref('entrar'); // entrar | pedir | codigo
+const recuperarForm = reactive({ username: '', codigo: '', nova: '', confirmar: '' });
+const recuperarLoading = ref(false);
+const sso = ref({ ativo: false, logoutUrl: '' });
+const modeloPdf = ref({});
+const pedidosRecuperacao = ref([]);
 
 const newUser = reactive({
   username: '',
@@ -127,7 +139,9 @@ async function guardarPassword() {
   if (senhaModal.nova !== senhaModal.confirmar) { senhaModal.erro = 'A confirmação não coincide com a nova password.'; return; }
   senhaModal.loading = true;
   try {
-    await apiFetch('/api/auth/password', { method: 'POST', body: JSON.stringify({ atual: senhaModal.atual, nova: senhaModal.nova }) });
+    const resposta = await apiFetch('/api/auth/password', { method: 'POST', body: JSON.stringify({ atual: senhaModal.atual, nova: senhaModal.nova }) });
+    // a troca termina as outras sessões: o servidor devolve um token novo para esta
+    if (resposta?.token) { token.value = resposta.token; localStorage.setItem('sigat_token', resposta.token); }
     const eraObrigatorio = senhaModal.obrigatorio;
     senhaModal.open = false;
     addToast('Password alterada com sucesso.', 'success');
@@ -415,6 +429,8 @@ const sortedEntries = computed(() => entries.value);
 const activePageTitle = computed(() => {
   if (currentPage.value === 'sources') return 'Importações';
   if (currentPage.value === 'accounts') return 'Gestão de Contas';
+  if (currentPage.value === 'administracao') return 'Administração';
+  if (currentPage.value === 'ajuda') return 'Ajuda e guia rápido';
   if (currentPage.value === 'aturb') return 'Arquivo Técnico de Urbanismo (ATURB)';
   if (currentPage.value === 'emprestimos') return 'Empréstimos';
   if (currentPage.value === 'painel') return 'Painel';
@@ -540,6 +556,11 @@ async function apiFetch(url, options = {}) {
   const payload = ct.includes('application/json') ? await response.json() : null;
 
   if (!response.ok) {
+    if (response.status === 401 && token.value) {
+      const mensagem = payload?.message || 'Sessão expirada. Inicie sessão novamente.';
+      logout();
+      addToast(mensagem, 'error');
+    }
     const error = new Error(payload?.message || `Erro HTTP ${response.status}`);
     error.details = payload;
     throw error;
@@ -650,6 +671,29 @@ async function bootstrap() {
   await loadAturbEntries();
   await loadAturbDistinctOptions();
   await loadUsers();
+  await carregarModeloPdf();
+  await carregarCarrinho();
+  await carregarPedidosRecuperacao();
+  iniciarAlertas();
+}
+
+// Guarda a sessão devolvida pelo login (palavra-passe ou SSO) e carrega os dados.
+async function iniciarSessao(payload) {
+  token.value = payload.token;
+  user.value = payload.user;
+  localStorage.setItem('sigat_token', token.value);
+  currentPage.value = 'painel';
+
+  if (payload.user.trocarPassword) { abrirAlterarPassword(true); return; }
+  await loadDatasets();
+  await loadEntries();
+  await loadDistinctOptions();
+  await loadAturbEntries();
+  await loadAturbDistinctOptions();
+  await loadUsers();
+  await carregarModeloPdf();
+  await carregarCarrinho();
+  await carregarPedidosRecuperacao();
   iniciarAlertas();
 }
 
@@ -663,28 +707,57 @@ async function login() {
         password: loginForm.password,
       }),
     });
-
-    token.value = payload.token;
-    user.value = payload.user;
-    localStorage.setItem('sigat_token', token.value);
-
     loginForm.username = '';
     loginForm.password = '';
-    currentPage.value = 'painel';
-
-    if (payload.user.trocarPassword) { abrirAlterarPassword(true); return; }
-    await loadDatasets();
-    await loadEntries();
-    await loadDistinctOptions();
-    await loadAturbEntries();
-    await loadAturbDistinctOptions();
-    await loadUsers();
-    iniciarAlertas();
+    await iniciarSessao(payload);
   } catch (error) {
     addToast(error.message, 'error');
   } finally {
     loginLoading.value = false;
   }
+}
+
+async function carregarEstadoSso() {
+  try { sso.value = await apiFetch('/api/auth/sso/estado'); } catch { sso.value = { ativo: false, logoutUrl: '' }; }
+}
+
+async function entrarSso(automatico = false) {
+  loginLoading.value = true;
+  try {
+    await iniciarSessao(await apiFetch('/api/auth/sso', { method: 'POST' }));
+  } catch (error) {
+    if (!automatico) addToast(error.message, 'error');
+  } finally {
+    loginLoading.value = false;
+  }
+}
+
+function abrirRecuperacao(modo) {
+  Object.assign(recuperarForm, { username: loginForm.username, codigo: '', nova: '', confirmar: '' });
+  modoLogin.value = modo;
+}
+
+async function pedirRecuperacao() {
+  recuperarLoading.value = true;
+  try {
+    const r = await apiFetch('/api/auth/recuperar/pedir', { method: 'POST', body: JSON.stringify({ username: recuperarForm.username }) });
+    addToast(r.message, 'success', 8000);
+    modoLogin.value = 'codigo';
+  } catch (error) { addToast(error.message, 'error'); } finally { recuperarLoading.value = false; }
+}
+
+async function redefinirComCodigo() {
+  if (recuperarForm.nova !== recuperarForm.confirmar) { addToast('A confirmação não coincide com a nova password.', 'error'); return; }
+  recuperarLoading.value = true;
+  try {
+    const r = await apiFetch('/api/auth/recuperar', {
+      method: 'POST',
+      body: JSON.stringify({ username: recuperarForm.username, codigo: recuperarForm.codigo, nova: recuperarForm.nova }),
+    });
+    addToast(r.message, 'success');
+    loginForm.username = recuperarForm.username;
+    modoLogin.value = 'entrar';
+  } catch (error) { addToast(error.message, 'error'); } finally { recuperarLoading.value = false; }
 }
 
 function logout() {
@@ -706,10 +779,14 @@ function logout() {
   aturbDistinctOptions.value = { autor: [], local: [], data: [], caixaNr: [] };
   // reset new state
   cart.value = [];
+  pedidosRecuperacao.value = [];
+  modeloPdf.value = {};
+  modoLogin.value = 'entrar';
   binEntries.value = [];
   binAturbEntries.value = [];
   historyItems.value = [];
   localStorage.removeItem('sigat_token');
+  carregarEstadoSso();
 }
 
 async function searchEntries() {
@@ -808,10 +885,41 @@ async function changePassword(userItem) {
   }
 }
 
+async function emitirCodigoRecuperacao(userItem) {
+  try {
+    const r = await apiFetch(`/api/users/${userItem.id}/recuperacao`, { method: 'POST' });
+    await openModal({
+      type: 'confirm',
+      title: `Código de recuperação — ${r.username}`,
+      message: `${r.codigo}  (válido até ${new Date(r.expiraEm).toLocaleString('pt-PT')}). Entregue-o ao utilizador por outro canal; não voltará a ser mostrado.`,
+      confirmLabel: 'Fechar',
+    });
+    await carregarPedidosRecuperacao();
+  } catch (error) { addToast(error.message, 'error'); }
+}
+
+async function acaoConta(userItem, caminho, mensagem) {
+  try {
+    await apiFetch(`/api/users/${userItem.id}/${caminho}`, { method: 'POST' });
+    addToast(mensagem, 'success');
+    await loadUsers();
+  } catch (error) { addToast(error.message, 'error'); }
+}
+
+async function alterarRole(userItem, role) {
+  try {
+    await apiFetch(`/api/users/${userItem.id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) });
+    addToast(`Perfil de "${userItem.username}" alterado.`, 'success');
+  } catch (error) { addToast(error.message, 'error'); }
+  await loadUsers();
+}
+
 function switchPage(pageName) {
   if (pageName === 'accounts' && !isAdmin.value) return;
+  if (pageName === 'administracao' && !isAdmin.value) return;
   if (pageName === 'sources' && !canAccessSources.value) return;
   currentPage.value = pageName;
+  if (pageName === 'accounts') { loadUsers(); carregarPedidosRecuperacao(); }
   if (pageName === 'bin') { loadBin(); loadAturbBin(); }
   if (pageName === 'history') loadHistory();
 }
@@ -941,24 +1049,38 @@ function cartKey(datasetId, entry) {
   return `${datasetId}__${entry.sourceEntryNumber}`;
 }
 
-function addToCart(datasetId, type, entry) {
-  const key = cartKey(datasetId, entry);
-  if (!cart.value.find(i => i.key === key)) {
-    cart.value.push({ key, datasetId, type, entry: { ...entry } });
-    addToast('Adicionado à impressão PDF.', 'success', 2000);
-  }
+// O carrinho é guardado no servidor (por utilizador): sobrevive ao fim da sessão e muda de dispositivo.
+async function carregarCarrinho() {
+  try {
+    const { items } = await apiFetch('/api/carrinho');
+    cart.value = items.map((entry) => ({ key: cartKey(entry.colecao, entry), datasetId: entry.colecao, type: entry.colecao, entry }));
+  } catch { cart.value = []; }
 }
 
-function removeFromCart(key) {
+async function addToCart(datasetId, type, entry) {
+  const key = cartKey(datasetId, entry);
+  if (cart.value.find(i => i.key === key)) return;
+  try {
+    await apiFetch(`/api/carrinho/${entry.id}`, { method: 'PUT' });
+    cart.value.push({ key, datasetId, type, entry: { ...entry } });
+    addToast('Adicionado à impressão PDF.', 'success', 2000);
+  } catch (e) { addToast(e.message, 'error'); }
+}
+
+async function removeFromCart(key) {
+  const item = cart.value.find(i => i.key === key);
   cart.value = cart.value.filter(i => i.key !== key);
+  if (!item) return;
+  try { await apiFetch(`/api/carrinho/${item.entry.id}`, { method: 'DELETE' }); } catch (e) { addToast(e.message, 'error'); await carregarCarrinho(); }
 }
 
 function isInCart(datasetId, entry) {
   return !!cart.value.find(i => i.key === cartKey(datasetId, entry));
 }
 
-function clearCart() {
+async function clearCart() {
   cart.value = [];
+  try { await apiFetch('/api/carrinho', { method: 'DELETE' }); } catch (e) { addToast(e.message, 'error'); await carregarCarrinho(); }
 }
 
 function toggleCart(datasetId, type, entry) {
@@ -969,120 +1091,48 @@ function toggleCart(datasetId, type, entry) {
   }
 }
 
-// ── PDF Export (browser print) ────────────────────────────────────────────
-function exportCartPDF() {
-  if (!cart.value.length) return;
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) { addToast('Popup bloqueado. Permita popups para exportar PDF.', 'error'); return; }
+// ── Ficha PDF (diálogo de impressão do browser) com o modelo institucional ──
+const incluirImagensPdf = ref(false);
 
-  function escHtml(v) { return String(v || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function lerMiniatura(anexoId) {
+  const r = await fetch(`/api/anexos/${anexoId}/ficheiro?miniatura=1`, { headers: { Authorization: `Bearer ${token.value}` } });
+  if (!r.ok) return null;
+  const blob = await r.blob();
+  return new Promise((resolve) => { const l = new FileReader(); l.onload = () => resolve(String(l.result)); l.onerror = () => resolve(null); l.readAsDataURL(blob); });
+}
 
-  function estadoHtml(entry) {
-    let html = escHtml(entry.estado);
-    if (entry.estado === 'Empréstimo' && entry.estadoMeta) {
-      html += `<br><span class="meta-sm">Data de saída: ${escHtml(entry.estadoMeta.dataSaida)} · Registado por: ${escHtml(entry.estadoMeta.registadoPor)}</span>`;
-    } else if (entry.estadoChangedAt) {
-      html += `<br><span class="meta-sm">Alterado em: ${new Date(entry.estadoChangedAt).toLocaleString('pt-PT')} · Por: ${escHtml(entry.estadoChangedBy)}</span>`;
-    }
-    return html;
+async function miniaturasDe(entry) {
+  try {
+    const { items } = await apiFetch(`/api/documentos/${entry.id}/anexos`);
+    const lidas = await Promise.all(items.filter((a) => a.tipo === 'ficheiro' && a.temMiniatura).slice(0, 4)
+      .map(async (a) => ({ src: await lerMiniatura(a.id), legenda: a.legenda || '' })));
+    return lidas.filter((m) => m.src);
+  } catch { return []; }
+}
+
+async function imprimirFichas(lista, comImagens = false) {
+  if (!lista.length) return;
+  const itens = [];
+  for (const { datasetId, type, entry } of lista) {
+    const ds = datasets.value.find(d => d.id === datasetId);
+    itens.push({ type, entry, nomeColecao: ds ? ds.name : datasetId, imagens: comImagens ? await miniaturasDe(entry) : [] });
   }
-
-  function renderCartografiaCard(entry, dsName) {
-    return `<div class="entry-card">
-      <div class="entry-card-header">
-        <h3>${escHtml(entry.cabecalho)}</h3>
-        <span class="entry-card-source">${escHtml(dsName)}</span>
-      </div>
-      <div class="entry-card-field entry-card-field--full">
-        <span class="label">Descrição</span>
-        <span class="value">${escHtml(entry.descricao)}</span>
-      </div>
-      <div class="entry-card-grid">
-        <div class="entry-card-field"><span class="label">Nº Registo</span><span class="value">${escHtml(entry.nrRegisto)}</span></div>
-        <div class="entry-card-field"><span class="label">Cota</span><span class="value">${escHtml(entry.cota)}</span></div>
-        <div class="entry-card-field"><span class="label">CDR</span><span class="value">${escHtml(entry.cdr)}</span></div>
-        <div class="entry-card-field"><span class="label">TB</span><span class="value">${escHtml(entry.tb)}</span></div>
-        <div class="entry-card-field"><span class="label">Localização</span><span class="value">${escHtml(entry.localizacao)}</span></div>
-        <div class="entry-card-field"><span class="label">Assuntos</span><span class="value">${escHtml(entry.assuntos)}</span></div>
-        <div class="entry-card-field"><span class="label">Notas</span><span class="value">${escHtml(entry.notas)}</span></div>
-        <div class="entry-card-field"><span class="label">Autor</span><span class="value">${escHtml(entry.autor)}</span></div>
-        <div class="entry-card-field"><span class="label">Ano</span><span class="value">${escHtml(entry.ano)}</span></div>
-        <div class="entry-card-field"><span class="label">Tipo</span><span class="value">${escHtml(entry.tipo)}</span></div>
-        <div class="entry-card-field"><span class="label">Cor</span><span class="value">${escHtml(entry.cor)}</span></div>
-        <div class="entry-card-field"><span class="label">Dimensão</span><span class="value">${escHtml(entry.dimensao)}</span></div>
-        <div class="entry-card-field"><span class="label">Estado</span><span class="value">${estadoHtml(entry)}</span></div>
-      </div>
-    </div>`;
+  if (!abrirFicha({ itens, modelo: modeloPdf.value, utilizador: user.value?.username || '' })) {
+    addToast('Popup bloqueado. Permita popups para exportar PDF.', 'error');
   }
+}
 
-  function renderAturbCard(entry, dsName) {
-    return `<div class="entry-card">
-      <div class="entry-card-header">
-        <h3>${escHtml(entry.titulo)}</h3>
-        <span class="entry-card-source">${escHtml(dsName)}</span>
-      </div>
-      <div class="entry-card-field entry-card-field--full">
-        <span class="label">Título</span>
-        <span class="value">${escHtml(entry.titulo)}</span>
-      </div>
-      <div class="entry-card-grid">
-        <div class="entry-card-field"><span class="label">Autor</span><span class="value">${escHtml(entry.autor)}</span></div>
-        <div class="entry-card-field"><span class="label">Local</span><span class="value">${escHtml(entry.local)}</span></div>
-        <div class="entry-card-field"><span class="label">Data</span><span class="value">${escHtml(entry.data)}</span></div>
-        <div class="entry-card-field"><span class="label">Caixa nº</span><span class="value">${escHtml(entry.caixaNr)}</span></div>
-        <div class="entry-card-field"><span class="label">Estado</span><span class="value">${estadoHtml(entry)}</span></div>
-      </div>
-    </div>`;
-  }
+const exportCartPDF = () => imprimirFichas(cart.value, incluirImagensPdf.value);
+const imprimirFichaDe = (entry) => imprimirFichas([{ datasetId: entry.colecao, type: entry.colecao, entry }], true);
 
-  const cartEntries = cart.value.filter(i => i.type !== 'aturb');
-  const aturbItems = cart.value.filter(i => i.type === 'aturb');
+async function carregarModeloPdf() {
+  try { modeloPdf.value = await apiFetch('/api/configuracao/publica'); } catch { modeloPdf.value = {}; }
+}
 
-  let content = '';
-  if (cartEntries.length) {
-    content += `<h2>Cartografia (${cartEntries.length})</h2>`;
-    content += cartEntries.map(({ datasetId, entry }) => {
-      const ds = datasets.value.find(d => d.id === datasetId);
-      return renderCartografiaCard(entry, ds ? ds.name : datasetId);
-    }).join('');
-  }
-  if (aturbItems.length) {
-    content += `<h2>ATURB (${aturbItems.length})</h2>`;
-    content += aturbItems.map(({ datasetId, entry }) => {
-      const ds = datasets.value.find(d => d.id === datasetId);
-      return renderAturbCard(entry, ds ? ds.name : datasetId);
-    }).join('');
-  }
-
-  win.document.write(`<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8">
-    <title>Câmara Municipal de Lisboa</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 20px; }
-      .top-header { font-size: 12px; color: #444; margin-bottom: 6px; text-align: center; }
-      h1 { font-size: 18px; margin-bottom: 4px; text-align: center; }
-      h2 { font-size: 15px; margin: 24px 0 10px; color: #333; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }
-      .meta { font-size: 11px; color: #666; margin-bottom: 20px; text-align: center; }
-      .entry-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 16px; page-break-inside: avoid; background: #fafbfc; }
-      .entry-card-header { margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-      .entry-card-header h3 { font-size: 14px; margin: 0 0 2px; color: #1e293b; }
-      .entry-card-source { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-      .entry-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
-      .entry-card-field { margin-bottom: 6px; }
-      .entry-card-field--full { margin-bottom: 10px; }
-      .entry-card-field .label { display: block; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-      .entry-card-field .value { display: block; font-size: 12px; color: #1e293b; word-break: break-word; }
-      .meta-sm { font-size: 10px; color: #94a3b8; }
-      @media print { body { margin: 10px; } .entry-card { break-inside: avoid; } }
-    </style>
-  </head><body>
-    <p class="top-header">Câmara Municipal de Lisboa</p>
-    <h1><strong>Gabinete de Estudos Olisiponenses</strong></h1>
-    <p class="meta">Exportado por: <strong>${user.value?.username || '—'}</strong> em ${new Date().toLocaleString('pt-PT')} &middot; ${cart.value.length} entrada(s) selecionada(s)</p>
-    ${content}
-  </body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => { win.print(); }, 600);
+// Ligação para pesquisa de pedidos de recuperação (apenas admin)
+async function carregarPedidosRecuperacao() {
+  if (!isAdmin.value) { pedidosRecuperacao.value = []; return; }
+  try { pedidosRecuperacao.value = (await apiFetch('/api/admin/recuperacoes')).items; } catch { pedidosRecuperacao.value = []; }
 }
 
 // ── Bin functions ─────────────────────────────────────────────────────────
@@ -1129,7 +1179,7 @@ async function loadHistory() {
 }
 
 function historyActionLabel(action) {
-  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado', export: 'Exportação', emprestimo: 'Empréstimo', devolucao: 'Devolução', prolongar: 'Prorrogação', importar: 'Importação' };
+  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado', export: 'Exportação', emprestimo: 'Empréstimo', devolucao: 'Devolução', prolongar: 'Prorrogação', importar: 'Importação', anexo: 'Anexo' };
   return labels[action] || action;
 }
 
@@ -1227,6 +1277,9 @@ function historyDetailsDisplay(item) {
     if (fs.length) parts.push(`filtros: ${fs.join(', ')}`);
     return parts.join(' · ');
   }
+
+  // Anexos (imagens/ligações)
+  if (item.action === 'anexo') return `${d.operacao || ''}: ${d.nome || ''}`;
 
   // Fallback: try to stringify
   try { return JSON.stringify(d); } catch { return ''; }
@@ -1351,7 +1404,11 @@ watch(pageSize, () => {
 });
 
 onMounted(async () => {
-  if (!token.value) return;
+  if (!token.value) {
+    await carregarEstadoSso();
+    if (sso.value.ativo) await entrarSso(true);
+    return;
+  }
   try { await bootstrap(); } catch { logout(); }
 });
 
@@ -1493,8 +1550,10 @@ onBeforeUnmount(() => {
               <EstadoControlo v-if="entryModal.entry" :entry="entryModal.entry" :can-edit="canEditEstado" :api="apiFetch" @changed="onEmprestimoAlterado" @erro="addToast($event, 'error')" />
             </div>
           </div>
+          <Anexos v-if="entryModal.entry" :documento="entryModal.entry" :can-edit="canManageEntries" :api="apiFetch" :token="token" :modelo-url="modeloPdf.imagens_url_modelo || ''" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
         </div>
         <div class="modal-footer">
+          <button v-if="entryModal.entry" class="btn btn-secondary" type="button" @click="imprimirFichaDe(entryModal.entry)">Imprimir ficha</button>
           <button class="btn btn-secondary" @click="entryModal.open = false">Fechar</button>
         </div>
       </div>
@@ -1540,9 +1599,11 @@ onBeforeUnmount(() => {
               <EstadoControlo v-if="aturbEntryModal.entry" :entry="aturbEntryModal.entry" :can-edit="canEditEstado" :api="apiFetch" @changed="onEmprestimoAlterado" @erro="addToast($event, 'error')" />
             </div>
           </div>
+          <Anexos v-if="aturbEntryModal.entry" :documento="aturbEntryModal.entry" :can-edit="canManageEntries" :api="apiFetch" :token="token" :modelo-url="modeloPdf.imagens_url_modelo || ''" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
         </div>
         <div class="modal-footer">
           <div style="display:flex;gap:8px;">
+            <button v-if="aturbEntryModal.entry" class="btn btn-secondary btn-sm" type="button" @click="imprimirFichaDe(aturbEntryModal.entry)">Imprimir ficha</button>
             <button v-if="canManageEntries && aturbEntryModal.entry" class="btn btn-secondary btn-sm" type="button" @click="openEditEntry(aturbSelectedDatasetId, 'aturb', aturbEntryModal.entry); aturbEntryModal.open = false">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Editar
@@ -1561,7 +1622,7 @@ onBeforeUnmount(() => {
     <div class="modal-box" style="max-width:420px;width:96vw">
       <div class="modal-header"><div class="modal-header-info">
         <h2 class="modal-title">{{ senhaModal.obrigatorio ? 'Defina uma nova password' : 'Alterar password' }}</h2>
-        <p v-if="senhaModal.obrigatorio" class="modal-message">A password atual é provisória. Escolha uma nova (mínimo 8 caracteres) para continuar.</p>
+        <p v-if="senhaModal.obrigatorio" class="modal-message">A password atual é provisória. Escolha uma nova (mínimo 8 caracteres, com letras e números) para continuar.</p>
       </div></div>
       <form class="modal-body" style="display:grid;gap:12px;" @submit.prevent="guardarPassword">
         <div class="field"><label class="field-label" for="pw-atual">Password atual</label><input id="pw-atual" v-model="senhaModal.atual" type="password" autocomplete="current-password" required /></div>
@@ -1726,7 +1787,7 @@ onBeforeUnmount(() => {
           <p>Sistema de Informação Cartográfica — introduza as suas credenciais para continuar.</p>
         </div>
 
-        <form class="login-form" @submit.prevent="login">
+        <form v-if="modoLogin === 'entrar'" class="login-form" @submit.prevent="login">
           <div class="field">
             <label class="field-label required" for="login-username">Username</label>
             <input id="login-username" v-model="loginForm.username" required placeholder="admin" autocomplete="username" />
@@ -1740,6 +1801,40 @@ onBeforeUnmount(() => {
             <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
             {{ loginLoading ? 'A autenticar...' : 'Entrar' }}
           </button>
+          <button v-if="sso.ativo" class="btn btn-secondary btn-full" type="button" :disabled="loginLoading" @click="entrarSso(false)">Entrar com a conta da organização</button>
+          <button class="btn btn-ghost btn-full" type="button" @click="abrirRecuperacao('pedir')">Esqueci-me da password</button>
+        </form>
+
+        <form v-else-if="modoLogin === 'pedir'" class="login-form" @submit.prevent="pedirRecuperacao">
+          <p style="font-size:13px;color:var(--muted);margin:0;">Indique o seu username. O administrador será avisado e dar-lhe-á um código de uso único para definir uma nova password.</p>
+          <div class="field">
+            <label class="field-label required" for="rec-username">Username</label>
+            <input id="rec-username" v-model="recuperarForm.username" required autocomplete="username" />
+          </div>
+          <button class="btn btn-primary btn-full" type="submit" :disabled="recuperarLoading">{{ recuperarLoading ? 'A enviar...' : 'Pedir recuperação' }}</button>
+          <button class="btn btn-ghost btn-full" type="button" @click="modoLogin = 'codigo'">Já tenho um código</button>
+          <button class="btn btn-ghost btn-full" type="button" @click="modoLogin = 'entrar'">Voltar</button>
+        </form>
+
+        <form v-else class="login-form" @submit.prevent="redefinirComCodigo">
+          <div class="field">
+            <label class="field-label required" for="rec2-username">Username</label>
+            <input id="rec2-username" v-model="recuperarForm.username" required autocomplete="username" />
+          </div>
+          <div class="field">
+            <label class="field-label required" for="rec2-codigo">Código fornecido pelo administrador</label>
+            <input id="rec2-codigo" v-model="recuperarForm.codigo" required placeholder="XXXX-XXXX" autocomplete="one-time-code" style="text-transform:uppercase;" />
+          </div>
+          <div class="field">
+            <label class="field-label required" for="rec2-nova">Nova password</label>
+            <input id="rec2-nova" v-model="recuperarForm.nova" required type="password" autocomplete="new-password" />
+          </div>
+          <div class="field">
+            <label class="field-label required" for="rec2-conf">Confirmar nova password</label>
+            <input id="rec2-conf" v-model="recuperarForm.confirmar" required type="password" autocomplete="new-password" />
+          </div>
+          <button class="btn btn-primary btn-full" type="submit" :disabled="recuperarLoading">{{ recuperarLoading ? 'A guardar...' : 'Definir nova password' }}</button>
+          <button class="btn btn-ghost btn-full" type="button" @click="modoLogin = 'entrar'">Voltar</button>
         </form>
 
       </div>
@@ -1864,6 +1959,20 @@ onBeforeUnmount(() => {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </span>
           <span v-if="!sidebarCollapsed">Gestão de Contas</span>
+          <span v-if="pedidosRecuperacao.length > 0" :class="['cart-badge', { 'cart-badge-collapsed': sidebarCollapsed }]" title="Pedidos de recuperação de password">{{ pedidosRecuperacao.length }}</span>
+        </button>
+
+        <button
+          v-if="isAdmin"
+          type="button"
+          :class="['nav-btn', { active: currentPage === 'administracao', 'nav-btn-collapsed': sidebarCollapsed }]"
+          @click="switchPage('administracao')"
+          :title="sidebarCollapsed ? 'Administração' : ''"
+        >
+          <span class="nav-btn-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span v-if="!sidebarCollapsed">Administração</span>
         </button>
 
         <div v-if="!sidebarCollapsed" class="sidebar-divider"></div>
@@ -1910,6 +2019,18 @@ onBeforeUnmount(() => {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 8 12 12 14 14"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><polyline points="3 16 3 11 8 11"/></svg>
           </span>
           <span v-if="!sidebarCollapsed">Histórico</span>
+        </button>
+
+        <button
+          type="button"
+          :class="['nav-btn', { active: currentPage === 'ajuda', 'nav-btn-collapsed': sidebarCollapsed }]"
+          @click="switchPage('ajuda')"
+          :title="sidebarCollapsed ? 'Ajuda' : ''"
+        >
+          <span class="nav-btn-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </span>
+          <span v-if="!sidebarCollapsed">Ajuda</span>
         </button>
       </nav>
 
@@ -2236,6 +2357,14 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
+        <section v-if="currentPage === 'administracao' && isAdmin">
+          <Administracao :api="apiFetch" :token="token" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" @modelo="carregarModeloPdf" />
+        </section>
+
+        <section v-if="currentPage === 'ajuda'">
+          <Ajuda :role="user?.role || 'read'" />
+        </section>
+
         <!-- ── Sources page (temporário até à Fase 4: importação incremental) ── -->
         <section v-if="currentPage === 'sources'">
           <Importacoes :api="apiFetch" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" @aplicada="onImportacaoAplicada" />
@@ -2243,6 +2372,15 @@ onBeforeUnmount(() => {
 
         <!-- ── Accounts page ─────────────────────────────────────────────── -->
         <section v-if="currentPage === 'accounts' && isAdmin">
+          <!-- Pedidos de recuperação de password -->
+          <div v-if="pedidosRecuperacao.length" class="alerta-emprestimos" role="status" style="margin-bottom:20px;display:block;">
+            <strong>{{ pedidosRecuperacao.length }} pedido{{ pedidosRecuperacao.length > 1 ? 's' : '' }} de recuperação de password:</strong>
+            <div v-for="p in pedidosRecuperacao" :key="p.id" style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <span>{{ p.username }} · {{ formatDate(p.pedidoEm) }}</span>
+              <button class="btn btn-secondary btn-sm" type="button" @click="emitirCodigoRecuperacao({ id: p.utilizadorId, username: p.username })">Gerar código</button>
+            </div>
+          </div>
+
           <!-- Create user card -->
           <div class="card" style="margin-bottom: 20px;">
             <div class="card-header">
@@ -2301,7 +2439,7 @@ onBeforeUnmount(() => {
                     <th>Utilizador</th>
                     <th>Role</th>
                     <th>Criado em</th>
-                    <th style="width: 200px;">Ações</th>
+                    <th style="width: 360px;">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2318,13 +2456,22 @@ onBeforeUnmount(() => {
                       <div class="flex items-center gap-2">
                         <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:grid;place-items:center;color:white;font-size:10px;font-weight:700;flex-shrink:0;text-transform:uppercase;">{{ u.username.slice(0,2) }}</div>
                         <strong>{{ u.username }}</strong>
+                        <span v-if="u.origem === 'sso'" class="badge" title="Autenticação da organização">SSO</span>
+                        <span v-if="u.bloqueadoAte" class="badge" style="background:#fee2e2;color:#b91c1c;" :title="`Bloqueada até ${formatDate(u.bloqueadoAte)}`">bloqueada</span>
                       </div>
                     </td>
-                    <td><span :class="['badge', `badge-${u.role}`]">{{ u.role }}</span></td>
+                    <td>
+                      <select :value="u.role" :disabled="u.id === user?.id" style="width:auto;padding:2px 6px;" :aria-label="`Perfil de ${u.username}`" @change="alterarRole(u, $event.target.value)">
+                        <option value="read">read</option><option value="write">write</option><option value="admin">admin</option>
+                      </select>
+                    </td>
                     <td class="text-muted">{{ formatDate(u.createdAt) }}</td>
                     <td>
-                      <div class="td-actions">
-                        <button class="btn btn-secondary btn-sm" type="button" @click="changePassword(u)">
+                      <div class="td-actions" style="flex-wrap:wrap;">
+                        <button v-if="u.bloqueadoAte" class="btn btn-secondary btn-sm" type="button" @click="acaoConta(u, 'desbloquear', 'Conta desbloqueada.')">Desbloquear</button>
+                        <button v-if="u.origem === 'local'" class="btn btn-secondary btn-sm" type="button" @click="emitirCodigoRecuperacao(u)">Código de recuperação</button>
+                        <button class="btn btn-secondary btn-sm" type="button" @click="acaoConta(u, 'revogar-sessoes', 'Sessões terminadas.')">Terminar sessões</button>
+                        <button v-if="u.origem === 'local'" class="btn btn-secondary btn-sm" type="button" @click="changePassword(u)">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
                           Password
                         </button>
@@ -2617,7 +2764,8 @@ onBeforeUnmount(() => {
                 <h2 class="card-title">Impressão PDF</h2>
                 <p class="card-subtitle">{{ cartCount }} entrada{{ cartCount !== 1 ? 's' : '' }} selecionada{{ cartCount !== 1 ? 's' : '' }}</p>
               </div>
-              <div style="margin-left:auto;display:flex;gap:8px;">
+              <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <label style="font-size:12px;display:flex;gap:4px;align-items:center;" title="Inclui até 4 miniaturas das imagens anexadas em cada ficha"><input v-model="incluirImagensPdf" type="checkbox" style="width:auto;" /> Incluir miniaturas</label>
                 <button class="btn btn-secondary btn-sm" type="button" :disabled="cartCount === 0" @click="clearCart()">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   Limpar lista

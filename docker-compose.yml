@@ -7,6 +7,23 @@ services:
     environment:
       - PORT=3000
       - JWT_SECRET=sigat-super-secret-change-me
+      # --- HTTPS (escolher uma opção) ---
+      # a) TLS terminado por um proxy/balanceador à frente da app:
+      # - TRUST_PROXY=1
+      # - FORCE_HTTPS=1
+      # b) TLS na própria app (montar os ficheiros em /certs):
+      # - SSL_KEY_FILE=/certs/privkey.pem
+      # - SSL_CERT_FILE=/certs/fullchain.pem
+      # --- Cópias de segurança: usar um volume/servidor diferente de ./data ---
+      # - SIGAT_BACKUP_DIR=/backups
+      # --- Origens CORS permitidas (por omissão: nenhuma, o frontend é servido pela app) ---
+      # - CORS_ORIGENS=https://sigat.exemplo.pt
+      # --- SSO por proxy de autenticação (IIS/Windows, oauth2-proxy, Easy Auth) ---
+      # - SSO_HEADER=X-Remote-User
+      # - SSO_SEGREDO=<segredo-partilhado-com-o-proxy-min-16-caracteres>
+      # - SSO_ROLE_POR_OMISSAO=read   # vazio = só contas já criadas
+      # - SSO_REMOVER_DOMINIO=1       # DOMINIO\user ou user@dominio -> user
     volumes:
       - ./data:/app/data
+      # - ./backups:/backups
     restart: unless-stopped

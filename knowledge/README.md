@@ -25,7 +25,7 @@ Idioma da UI, mensagens de erro da API e dados: **português (pt-PT)**. Manter.
 3. `public/` (build) **está versionado**; depois de alterar `frontend/`, correr `npm run build:client`.
 4. Persistência: SQLite `data/sigat.db` (gitignored). Duas coleções fixas: `cartografia` e `aturb`; documentos com campos em JSON e campos definidos na tabela `campos` (extensíveis na importação).
 5. Identificador visível: `numero` ("ID SIGAT"), por coleção, nunca reutilizado; identificador interno `id` (UUID) usado nas rotas de mutação.
-6. Auth: JWT (8h) + role lido da BD em cada pedido (`admin`, `write`, `read`); password inicial provisória obriga a troca; limite de tentativas de login.
+6. Auth: JWT (duração configurável, 8h) + role lido da BD em cada pedido (`admin`, `write`, `read`); password inicial provisória obriga a troca; política de passwords, bloqueio de conta, recuperação por código do admin, SSO opcional por proxy; parâmetros em `configuracoes` (página Administração), cópias automáticas em `data/backups`, anexos (imagens) em `data/anexos`, carrinho de impressão por utilizador no servidor.
 7. Empréstimos têm tabela própria (prazo, devolução, atraso, alertas); estado `Empréstimo` só se muda por essas rotas.
 8. Importação a partir do Excel: mapear colunas → comparar (fusão a 3 vias) → decidir → aplicar numa transação; preserva estados, empréstimos e edições.
 9. Painel (página inicial): indicadores, mais consultados, qualidade dos dados, duplicados.
@@ -33,6 +33,7 @@ Idioma da UI, mensagens de erro da API e dados: **português (pt-PT)**. Manter.
 
 ## Armadilhas frequentes
 - `public/` é artefacto de build commitado: não editar à mão.
+- Nos testes, passwords novas têm de cumprir a política (letras+números, ≥8); trocar a password invalida o token antigo (usar o `token` devolvido).
 - `sourceEntryNumber` nas respostas é um alias de `numero`; as mutações usam `id`.
 - Documentos migrados do JSON com edições têm `dados_importados` nulo: diferenças na 1.ª importação são conflitos.
 - `better-sqlite3` 13 exige Node ≥ 22; `xlsx` (SheetJS 0.20.3) instala-se do CDN oficial (`npm install --allow-remote=all <url>` com npm 12).

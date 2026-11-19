@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const utilizadores = require('./db/repos/utilizadores');
+const config = require('./config');
 
 const DEFAULT_JWT_SECRET = 'sigat-dev-secret-change-me';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
@@ -10,8 +11,13 @@ if (process.env.NODE_ENV === 'production' && JWT_SECRET === DEFAULT_JWT_SECRET) 
   process.exit(1);
 }
 
+// A duração da sessão vem da configuração; `sv` permite revogar todas as sessões de um utilizador.
 function buildToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+  return jwt.sign(
+    { sub: user.id, username: user.username, role: user.role, sv: user.sessao_versao || 0 },
+    JWT_SECRET,
+    { expiresIn: `${config.todas().sessao_horas}h` },
+  );
 }
 
 // Rotas permitidas enquanto a password inicial não for alterada.
@@ -24,12 +30,14 @@ function authMiddleware(req, res, next) {
   let payload;
   try {
     payload = jwt.verify(token, JWT_SECRET);
-  } catch (_error) {
-    return res.status(401).json({ message: 'Token inválido.' });
+  } catch (error) {
+    const expirou = error?.name === 'TokenExpiredError';
+    return res.status(401).json({ message: expirou ? 'Sessão expirada. Inicie sessão novamente.' : 'Token inválido.' });
   }
   // O utilizador e o role vêm da BD: contas apagadas ou com role alterado têm efeito imediato.
   const user = utilizadores.obterPorId(payload.sub);
   if (!user) return res.status(401).json({ message: 'Utilizador inexistente.' });
+  if ((payload.sv || 0) !== user.sessao_versao) return res.status(401).json({ message: 'Sessão terminada. Inicie sessão novamente.' });
   req.user = { sub: user.id, username: user.username, role: user.role };
   if (user.trocar_password && !ROTAS_COM_TROCA_PENDENTE.has(req.path)) {
     return res.status(403).json({ message: 'Tem de alterar a password inicial antes de continuar.', trocarPassword: true });

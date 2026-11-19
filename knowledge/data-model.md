@@ -49,3 +49,11 @@ Folha `PDF Site` (ou a primeira com cabeçalhos reconhecidos); agora também **p
 ## Histórico, lixo
 - Tabela `historico`: ações `criar|editar|eliminar|restaurar|estado|emprestimo|devolucao|prolongar|importar|exportar` (a API devolve `create|edit|delete|restore|estado|export` em inglês para as primeiras e as restantes tal qual). `editar` guarda só `alteracoes:{campo:{de,para}}`. Mais recente primeiro.
 - Eliminar = soft-delete (`eliminado_em`); restaurar limpa-o. Não há eliminação definitiva.
+- Ação `anexo` (detalhes `{operacao, nome}`) regista anexos adicionados/removidos. Entradas mais antigas que `historico_retencao_dias` são removidas (se > 0).
+
+## Anexos, carrinho, configuração e auditoria
+- `anexos`: por documento; `tipo` `ficheiro` (em `data/anexos/`, com `miniatura` opcional) ou `ligacao` (URL http/https).
+- `carrinhos`: (utilizador, documento) pessoal; cascata ao apagar utilizador.
+- `configuracoes`: chave/valor; valores por omissão e limites em `src/config.js`.
+- `auditoria`: eventos de segurança/administração (login, falhas, bloqueios, recuperações, config, cópias, SSO), independentes do Histórico.
+- `recuperacoes`: pedidos/códigos (só hash) de recuperação de password. `utilizadores` ganhou `tentativas_falhadas`, `bloqueado_ate`, `password_alterada_em`, `origem` (`local`/`sso`), `sessao_versao`.
