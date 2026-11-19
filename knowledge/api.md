@@ -27,7 +27,15 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 | GET | `/documentos/:id` | any | detalhe |
 | GET | `/documentos/:id/historico` | admin,write | |
 | PUT | `/documentos/:id` | admin,write | merge; `''` limpa um campo; não permite esvaziar um obrigatório já preenchido |
-| PATCH | `/documentos/:id/estado` | admin,write | `{estado, estadoMeta?}`; ponte temporária: `Empréstimo` cria empréstimo (ver Fase 3 do plano) |
+| PATCH | `/documentos/:id/estado` | admin,write | `{estado}` = `-`, `Arquivo` ou `Em Consulta`; `Empréstimo` → 400 e sair de `Empréstimo` → 409 (usar as rotas de empréstimos) |
+| GET | `/emprestimos` | any | `estado=ativo|atraso|sem_prazo|devolvido|todos`, `colecao`, `requisitante`, `de`, `ate` (data de saída), `page`, `pageSize`; itens com `situacao` (`ativo`, `em_atraso`, `sem_prazo`, `devolvido`, `devolvido_com_atraso`), `diasAtraso`, `documento` |
+| GET | `/emprestimos/resumo` | any | `{ativos, emAtraso, aVencer7dias, semPrazo}` (opcional `colecao`) |
+| GET | `/emprestimos/requisitantes` | any | sugestões |
+| GET | `/emprestimos/exportar` | any | mesmos filtros + `formato=xlsx|csv` |
+| GET | `/documentos/:id/emprestimos` | any | histórico de empréstimos do documento |
+| POST | `/documentos/:id/emprestimos` | admin,write | `{requisitante, entidade?, contacto?, dataSaida?, dataPrevista?, observacoes?}`; `dataPrevista` omitida = +prazo por omissão, `''` = sem prazo; 409 se já houver ativo |
+| POST | `/emprestimos/:id/devolver` | admin,write | `{dataDevolucao?, observacoes?}`; documento passa a `Arquivo` |
+| PATCH | `/emprestimos/:id` | admin,write | prolongar/corrigir (`dataPrevista`, `requisitante`, `entidade`, `contacto`, `observacoes`); só emprestimos ativos |
 | DELETE | `/documentos/:id` | admin,write | soft-delete; 409 se emprestado |
 | POST | `/documentos/:id/restaurar` | admin,write | |
 

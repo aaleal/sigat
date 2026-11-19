@@ -194,31 +194,28 @@ function restaurar(id, utilizador) {
   return obter(id);
 }
 
-// Ponte temporária (Fase 2): o estado "Empréstimo" é gerido via empréstimos; na Fase 3 passa a ter rotas próprias.
-function definirEstado(id, estado, utilizador, meta = {}) {
+// "Empréstimo" só se cria/termina pelas rotas de empréstimos (requisitante, prazo, devolução).
+function definirEstado(id, estado, utilizador) {
   if (!ESTADOS.includes(estado)) throw new ErroValidacao('Estado inválido.', {});
-  const emprestimos = require('./emprestimos'); // evita dependência circular
+  if (estado === 'Empréstimo') {
+    throw new ErroValidacao('Use "Registar empréstimo" para emprestar um documento.', {}, 400);
+  }
   const db = getDb();
   const row = db.prepare('SELECT colecao, estado, eliminado_em FROM documentos WHERE id = ?').get(id);
   if (!row || row.eliminado_em) return null;
   if (row.estado === estado) return obter(id);
-
-  if (estado === 'Empréstimo') {
-    emprestimos.criar(id, { requisitante: meta.requisitante || '(não indicado)', dataSaida: meta.dataSaida }, utilizador);
-  } else if (row.estado === 'Empréstimo') {
-    const ativo = emprestimos.ativoDe(id);
-    if (ativo) emprestimos.devolver(ativo.id, { novoEstado: estado }, utilizador);
-  } else {
-    const agora = new Date().toISOString();
-    transaction(() => {
-      db.prepare('UPDATE documentos SET estado = ?, estado_alterado_em = ?, estado_alterado_por = ? WHERE id = ?').run(estado, agora, utilizador, id);
-      if (estado === 'Em Consulta') {
-        db.prepare('INSERT INTO consultas (documento_id, tipo, utilizador, em) VALUES (?, ?, ?, ?)').run(id, 'presencial', utilizador, agora);
-      }
-      historico.registar({ colecao: row.colecao, documentoId: id, acao: 'estado', utilizador, detalhes: { prevEstado: row.estado, newEstado: estado } });
-    });
-    invalidar(row.colecao);
+  if (row.estado === 'Empréstimo') {
+    throw new ErroValidacao('Documento emprestado: registe a devolução para alterar o estado.', {}, 409);
   }
+  const agora = new Date().toISOString();
+  transaction(() => {
+    db.prepare('UPDATE documentos SET estado = ?, estado_alterado_em = ?, estado_alterado_por = ? WHERE id = ?').run(estado, agora, utilizador, id);
+    if (estado === 'Em Consulta') {
+      db.prepare('INSERT INTO consultas (documento_id, tipo, utilizador, em) VALUES (?, ?, ?, ?)').run(id, 'presencial', utilizador, agora);
+    }
+    historico.registar({ colecao: row.colecao, documentoId: id, acao: 'estado', utilizador, detalhes: { prevEstado: row.estado, newEstado: estado } });
+  });
+  invalidar(row.colecao);
   return obter(id);
 }
 

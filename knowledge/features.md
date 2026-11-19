@@ -25,8 +25,15 @@ Menu: **Cartografia**, **ATURB**, Fontes de Dados (admin), Gestão de Contas (ad
 ## ATURB (pesquisa)
 Filtros: autor, título, local, data, caixa nº (numérico exato), estado; ordenação e paginação análogas. Mesmas ações (detalhe, editar, estado, carrinho).
 
-## Estados
-`Arquivo`, `Em Consulta`, `Empréstimo`, e `-` (sem estado). Ao escolher `Empréstimo` abre modal que pede **data de saída**; guarda-se `estadoMeta` com o utilizador. Mudanças ficam em `history`.
+## Estados e empréstimos
+Estados: `Arquivo`, `Em Consulta`, `Empréstimo` e `-` (sem estado, mostrado como "—"). Passar a `Em Consulta` regista uma consulta presencial.
+
+**Empréstimos** (tabela própria, vários por documento ao longo do tempo, só um ativo):
+- "Registar empréstimo…" (seletor de estado) pede requisitante (obrigatório, com sugestões), entidade, contacto, data de saída (≤ hoje), devolução prevista (por omissão +30 dias, `SIGAT_PRAZO_EMPRESTIMO_DIAS`; pode ficar "sem prazo") e observações.
+- Documento emprestado mostra requisitante e "até dd/mm/aaaa" (vermelho "Em atraso N dias" se vencido) e oferece **Devolver** (data efetiva + observações; estado passa a `Arquivo`) e **Prolongar** (nova data prevista). Não se muda o estado nem se elimina um documento emprestado sem devolver.
+- Página **Empréstimos**: separadores Ativos / Em atraso / Sem prazo / Histórico; filtros por coleção, requisitante/entidade e período; exportação Excel/CSV.
+- **Alertas**: badge vermelho no menu com o n.º em atraso e faixa no topo "N em atraso · M vencem nos próximos 7 dias" (atualiza de 5 em 5 minutos). Sem email.
+- Pesquisa: parâmetro `emprestimo=ativo|atraso` na API.
 
 ## Gestão de entradas (write/admin)
 - Criar/editar via modal. Obrigatórios — Cartografia: cabeçalho, descrição, cota, autor. ATURB: título, autor, local, data, caixa nº. A validação é **só no frontend**.

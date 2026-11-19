@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import ExportarBotao from './components/ExportarBotao.vue';
+import EstadoControlo from './components/EstadoControlo.vue';
+import Emprestimos from './components/Emprestimos.vue';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -113,30 +115,34 @@ function resetEntryForm() {
 }
 
 // ── Empréstimo modal ──────────────────────────────────────────────────────
-const emprestimoModal = reactive({
-  open: false,
-  entry: null,
-  datasetId: '',
-  type: '',
-  dataSaida: new Date().toISOString().slice(0, 10),
-  resolve: null,
-});
+// ── Empréstimos (alertas) ─────────────────────────────────────────────────
+const resumoEmprestimos = ref({ ativos: 0, emAtraso: 0, aVencer7dias: 0, semPrazo: 0 });
+let resumoTimer = null;
 
-function openEmprestimoModal(entry, datasetId, type) {
-  return new Promise((resolve) => {
-    emprestimoModal.open = true;
-    emprestimoModal.entry = entry;
-    emprestimoModal.datasetId = datasetId;
-    emprestimoModal.type = type;
-    emprestimoModal.dataSaida = new Date().toISOString().slice(0, 10);
-    emprestimoModal.resolve = resolve;
-  });
+async function carregarResumoEmprestimos() {
+  try { resumoEmprestimos.value = await apiFetch('/api/emprestimos/resumo'); } catch { /* alerta é opcional */ }
 }
 
-function closeEmprestimoModal(confirmed) {
-  emprestimoModal.open = false;
-  if (emprestimoModal.resolve) {
-    emprestimoModal.resolve(confirmed ? emprestimoModal.dataSaida : null);
+async function onEmprestimoAlterado() {
+  await carregarResumoEmprestimos();
+  await loadEntries();
+  await loadAturbEntries();
+}
+
+function iniciarAlertas() {
+  carregarResumoEmprestimos();
+  clearInterval(resumoTimer);
+  resumoTimer = setInterval(carregarResumoEmprestimos, 5 * 60 * 1000);
+}
+
+// Abre o detalhe de um documento (usado a partir da lista de empréstimos).
+async function abrirDocumento(doc) {
+  try {
+    const entry = await apiFetch(`/api/documentos/${doc.id}`);
+    if (entry.colecao === 'aturb') { aturbEntryModal.entry = entry; aturbEntryModal.open = true; }
+    else { entryModal.entry = entry; entryModal.open = true; }
+  } catch (error) {
+    addToast(error.message, 'error');
   }
 }
 
@@ -365,6 +371,7 @@ const activePageTitle = computed(() => {
   if (currentPage.value === 'sources') return 'Fontes de Dados';
   if (currentPage.value === 'accounts') return 'Gestão de Contas';
   if (currentPage.value === 'aturb') return 'Arquivo Técnico de Urbanismo (ATURB)';
+  if (currentPage.value === 'emprestimos') return 'Empréstimos';
   if (currentPage.value === 'cart') return 'Impressão PDF';
   if (currentPage.value === 'bin') return 'Lixo (entradas eliminadas)';
   if (currentPage.value === 'history') return 'Histórico de Alterações';
@@ -537,28 +544,6 @@ function openEntryModal(entry) {
   entryModal.open = true;
 }
 
-async function updateEstado(entry, newEstado) {
-  if (!canEditEstado.value) return;
-  let estadoMeta = null;
-  if (newEstado === 'Empréstimo') {
-    const dataSaida = await openEmprestimoModal(entry, selectedDatasetId.value, 'cartografia');
-    if (!dataSaida) return; // user cancelled
-    estadoMeta = { dataSaida, registadoPor: user.value?.username || '' };
-  }
-  try {
-    const result = await apiFetch(`/api/documentos/${entry.id}/estado`, {
-      method: 'PATCH',
-      body: JSON.stringify({ estado: newEstado, estadoMeta }),
-    });
-    entry.estado = result.estado;
-    entry.estadoMeta = result.estadoMeta;
-    entry.estadoChangedAt = result.estadoChangedAt;
-    entry.estadoChangedBy = result.estadoChangedBy;
-  } catch (error) {
-    addToast('Erro ao atualizar estado: ' + error.message, 'error');
-  }
-}
-
 async function loadUsers() {
   if (!isAdmin.value) {
     users.value = [];
@@ -628,6 +613,7 @@ async function bootstrap() {
   await loadAturbEntries();
   await loadAturbDistinctOptions();
   await loadUsers();
+  iniciarAlertas();
 }
 
 async function login() {
@@ -655,6 +641,7 @@ async function login() {
     await loadAturbEntries();
     await loadAturbDistinctOptions();
     await loadUsers();
+    iniciarAlertas();
   } catch (error) {
     addToast(error.message, 'error');
   } finally {
@@ -663,6 +650,8 @@ async function login() {
 }
 
 function logout() {
+  clearInterval(resumoTimer);
+  resumoEmprestimos.value = { ativos: 0, emAtraso: 0, aVencer7dias: 0, semPrazo: 0 };
   token.value = '';
   user.value = null;
   currentPage.value = 'search';
@@ -931,28 +920,6 @@ function openAturbEntryModal(entry) {
   aturbEntryModal.open = true;
 }
 
-async function updateAturbEstado(entry, newEstado) {
-  if (!canEditEstado.value) return;
-  let estadoMeta = null;
-  if (newEstado === 'Empréstimo') {
-    const dataSaida = await openEmprestimoModal(entry, aturbSelectedDatasetId.value, 'aturb');
-    if (!dataSaida) return;
-    estadoMeta = { dataSaida, registadoPor: user.value?.username || '' };
-  }
-  try {
-    const result = await apiFetch(`/api/documentos/${entry.id}/estado`, {
-      method: 'PATCH',
-      body: JSON.stringify({ estado: newEstado, estadoMeta }),
-    });
-    entry.estado = result.estado;
-    entry.estadoMeta = result.estadoMeta;
-    entry.estadoChangedAt = result.estadoChangedAt;
-    entry.estadoChangedBy = result.estadoChangedBy;
-  } catch (error) {
-    addToast('Erro ao atualizar estado: ' + error.message, 'error');
-  }
-}
-
 function cartKey(datasetId, entry) {
   return `${datasetId}__${entry.sourceEntryNumber}`;
 }
@@ -1145,7 +1112,7 @@ async function loadHistory() {
 }
 
 function historyActionLabel(action) {
-  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado', export: 'Exportação' };
+  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado', export: 'Exportação', emprestimo: 'Empréstimo', devolucao: 'Devolução', prolongar: 'Prorrogação', importar: 'Importação' };
   return labels[action] || action;
 }
 
@@ -1224,6 +1191,15 @@ function historyDetailsDisplay(item) {
     const e = d.entry;
     const info = e.cabecalho || e.titulo || '';
     return info ? `Entrada: ${info}` : '';
+  }
+
+  // Empréstimo / devolução / prorrogação
+  if (item.action === 'emprestimo' && d.requisitante) {
+    return `Requisitante: ${d.requisitante} · saída ${d.dataSaida || '—'}${d.dataPrevista ? ` · previsto ${d.dataPrevista}` : ''}`;
+  }
+  if (item.action === 'devolucao') return `Requisitante: ${d.requisitante || '—'} · devolvido em ${d.dataDevolucao || '—'}`;
+  if ((item.action === 'prolongar' || item.action === 'emprestimo') && d.alteracoes) {
+    return Object.entries(d.alteracoes).map(([k, v]) => `${k}: "${v.de}" → "${v.para}"`).join(' · ');
   }
 
   // Export — total e critérios
@@ -1543,35 +1519,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="entry-meta-item">
               <span class="entry-field-label">Estado</span>
-              <template v-if="canEditEstado && entryModal.entry">
-                <select
-                  :value="entryModal.entry.estado"
-                  :class="['estado-select', `estado-${estadoClassSuffix(entryModal.entry.estado)}`]"
-                  @change="updateEstado(entryModal.entry, $event.target.value)"
-                >
-                  <option value="">— —</option>
-                  <option v-for="opt in ESTADO_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <div v-if="entryModal.entry.estado === 'Empréstimo' && entryModal.entry.estadoMeta" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Saída: {{ entryModal.entry.estadoMeta.dataSaida }}<br>
-                  Registado por: {{ entryModal.entry.estadoMeta.registadoPor }}
-                </div>
-                <div v-else-if="entryModal.entry.estadoChangedAt" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Alterado em: {{ new Date(entryModal.entry.estadoChangedAt).toLocaleString('pt-PT') }}<br>
-                  Por: {{ entryModal.entry.estadoChangedBy }}
-                </div>
-              </template>
-              <template v-else>
-                <span :class="['estado-badge', `estado-${estadoClassSuffix(entryModal.entry?.estado)}`]">{{ entryModal.entry?.estado || '—' }}</span>
-                <div v-if="entryModal.entry?.estado === 'Empréstimo' && entryModal.entry?.estadoMeta" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Saída: {{ entryModal.entry.estadoMeta.dataSaida }}<br>
-                  Registado por: {{ entryModal.entry.estadoMeta.registadoPor }}
-                </div>
-                <div v-else-if="entryModal.entry?.estadoChangedAt" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Alterado em: {{ new Date(entryModal.entry.estadoChangedAt).toLocaleString('pt-PT') }}<br>
-                  Por: {{ entryModal.entry.estadoChangedBy }}
-                </div>
-              </template>
+              <EstadoControlo v-if="entryModal.entry" :entry="entryModal.entry" :can-edit="canEditEstado" :api="apiFetch" @changed="onEmprestimoAlterado" @erro="addToast($event, 'error')" />
             </div>
           </div>
         </div>
@@ -1618,34 +1566,7 @@ onBeforeUnmount(() => {
           <div class="entry-meta-strip">
             <div class="entry-meta-item">
               <span class="entry-field-label">Estado</span>
-              <template v-if="aturbEntryModal.entry && canEditEstado">
-                <select
-                  :value="aturbEntryModal.entry.estado"
-                  :class="['estado-select', `estado-${estadoClassSuffix(aturbEntryModal.entry.estado)}`]"
-                  @change="updateAturbEstado(aturbEntryModal.entry, $event.target.value)"
-                >
-                  <option value="">— —</option>
-                  <option v-for="opt in ESTADO_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <div v-if="aturbEntryModal.entry.estado === 'Empréstimo' && aturbEntryModal.entry.estadoMeta" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Data de saída: <strong>{{ aturbEntryModal.entry.estadoMeta.dataSaida }}</strong><br>
-                  Registado por: <strong>{{ aturbEntryModal.entry.estadoMeta.registadoPor }}</strong>
-                </div>
-                <div v-else-if="aturbEntryModal.entry.estadoChangedAt" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Alterado em: <strong>{{ new Date(aturbEntryModal.entry.estadoChangedAt).toLocaleString('pt-PT') }}</strong><br>
-                  Por: <strong>{{ aturbEntryModal.entry.estadoChangedBy }}</strong>
-                </div>
-              </template>
-              <template v-else-if="aturbEntryModal.entry">
-                <span :class="['estado-badge', `estado-${estadoClassSuffix(aturbEntryModal.entry.estado)}`]">{{ aturbEntryModal.entry.estado || '—' }}</span>
-                <div v-if="aturbEntryModal.entry.estado === 'Empréstimo' && aturbEntryModal.entry.estadoMeta" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Data de saída: <strong>{{ aturbEntryModal.entry.estadoMeta.dataSaida }}</strong>
-                </div>
-                <div v-else-if="aturbEntryModal.entry.estadoChangedAt" style="font-size:11px;color:var(--muted);margin-top:4px;">
-                  Alterado em: <strong>{{ new Date(aturbEntryModal.entry.estadoChangedAt).toLocaleString('pt-PT') }}</strong><br>
-                  Por: <strong>{{ aturbEntryModal.entry.estadoChangedBy }}</strong>
-                </div>
-              </template>
+              <EstadoControlo v-if="aturbEntryModal.entry" :entry="aturbEntryModal.entry" :can-edit="canEditEstado" :api="apiFetch" @changed="onEmprestimoAlterado" @erro="addToast($event, 'error')" />
             </div>
           </div>
         </div>
@@ -1664,34 +1585,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-  <!-- ── Empréstimo modal ──────────────────────────────────────────────── -->
-  <div v-if="emprestimoModal.open" class="modal-backdrop" @click.self="closeEmprestimoModal(false)" role="dialog" aria-modal="true">
-    <div class="modal-box" style="max-width:420px">
-      <div class="modal-header">
-        <div class="modal-header-info">
-          <h2 class="modal-title">Registar Empréstimo</h2>
-          <p class="modal-message">Indique a data de saída do arquivo.</p>
-        </div>
-        <button class="modal-close-btn" type="button" @click="closeEmprestimoModal(false)" aria-label="Fechar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="field">
-          <label class="field-label" for="empr-date">Data de saída <span style="color:var(--danger)">*</span></label>
-          <input id="empr-date" type="date" class="input" v-model="emprestimoModal.dataSaida" />
-        </div>
-        <div style="font-size:13px;color:var(--muted);margin-top:10px;">
-          Registado por: <strong>{{ user?.username }}</strong>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" @click="closeEmprestimoModal(false)">Cancelar</button>
-        <button class="btn btn-primary" type="button" :disabled="!emprestimoModal.dataSaida" @click="closeEmprestimoModal(true)">Confirmar</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ── Entry form modal (create / edit) ─────────────────────────────── -->
   <div v-if="entryFormModal.open" class="modal-backdrop" @click.self="entryFormModal.open = false" role="dialog" aria-modal="true">
     <div class="modal-box" style="max-width:680px;max-height:90vh;display:flex;flex-direction:column;">
@@ -1943,6 +1836,20 @@ onBeforeUnmount(() => {
         </button>
 
         <button
+          type="button"
+          :class="['nav-btn', { active: currentPage === 'emprestimos', 'nav-btn-collapsed': sidebarCollapsed }]"
+          @click="switchPage('emprestimos')"
+          :title="sidebarCollapsed ? 'Empréstimos' : ''"
+          style="position:relative"
+        >
+          <span class="nav-btn-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </span>
+          <span v-if="!sidebarCollapsed">Empréstimos</span>
+          <span v-if="resumoEmprestimos.emAtraso > 0" :class="['cart-badge', { 'cart-badge-collapsed': sidebarCollapsed }]" style="background:var(--danger, #dc2626)" title="Empréstimos em atraso">{{ resumoEmprestimos.emAtraso }}</span>
+        </button>
+
+        <button
           v-if="isAdmin"
           type="button"
           :class="['nav-btn', { active: currentPage === 'accounts', 'nav-btn-collapsed': sidebarCollapsed }]"
@@ -2046,6 +1953,30 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="page-body">
+
+        <!-- Alertas de empréstimos -->
+        <div v-if="(resumoEmprestimos.emAtraso > 0 || resumoEmprestimos.aVencer7dias > 0) && currentPage !== 'emprestimos'" class="alerta-emprestimos" role="status">
+          <span>
+            <strong v-if="resumoEmprestimos.emAtraso > 0">{{ resumoEmprestimos.emAtraso }} empréstimo{{ resumoEmprestimos.emAtraso > 1 ? 's' : '' }} em atraso</strong>
+            <template v-if="resumoEmprestimos.emAtraso > 0 && resumoEmprestimos.aVencer7dias > 0"> · </template>
+            <span v-if="resumoEmprestimos.aVencer7dias > 0">{{ resumoEmprestimos.aVencer7dias }} vence{{ resumoEmprestimos.aVencer7dias > 1 ? 'm' : '' }} nos próximos 7 dias</span>
+          </span>
+          <button class="btn btn-secondary btn-sm" type="button" @click="switchPage('emprestimos')">Ver empréstimos</button>
+        </div>
+
+        <!-- ── Empréstimos page ── -->
+        <section v-if="currentPage === 'emprestimos'">
+          <Emprestimos
+            :api="apiFetch"
+            :token="token"
+            :can-edit="canEditEstado"
+            :resumo="resumoEmprestimos"
+            @changed="onEmprestimoAlterado"
+            @abrir="abrirDocumento"
+            @ok="addToast($event, 'success')"
+            @erro="addToast($event, 'error')"
+          />
+        </section>
 
         <!-- ── Search page ──────────────────────────────────────────────── -->
         <section v-if="currentPage === 'search'">
@@ -2251,31 +2182,7 @@ onBeforeUnmount(() => {
                       <td><span class="cell-clamp cell-clamp-sm" :title="entry.localizacao" style="font-size:12px">{{ entry.localizacao || '—' }}</span></td>
                       <td class="cell-nowrap"><strong>{{ entry.nrRegisto }}</strong></td>
                       <td class="cell-nowrap" @click.stop>
-                        <template v-if="canEditEstado">
-                          <select
-                            :value="entry.estado"
-                            :class="['estado-select', `estado-${estadoClassSuffix(entry.estado)}`]"
-                            @change="updateEstado(entry, $event.target.value)"
-                          >
-                            <option value="">— —</option>
-                            <option v-for="opt in ESTADO_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
-                          </select>
-                          <div v-if="entry.estado === 'Empréstimo' && entry.estadoMeta" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ entry.estadoMeta.dataSaida }} · {{ entry.estadoMeta.registadoPor }}
-                          </div>
-                          <div v-else-if="entry.estadoChangedAt" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ new Date(entry.estadoChangedAt).toLocaleString('pt-PT') }} · {{ entry.estadoChangedBy }}
-                          </div>
-                        </template>
-                        <template v-else>
-                          <span :class="['estado-badge', `estado-${estadoClassSuffix(entry.estado)}`]">{{ entry.estado || '—' }}</span>
-                          <div v-if="entry.estado === 'Empréstimo' && entry.estadoMeta" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ entry.estadoMeta.dataSaida }}
-                          </div>
-                          <div v-else-if="entry.estadoChangedAt" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ new Date(entry.estadoChangedAt).toLocaleString('pt-PT') }} · {{ entry.estadoChangedBy }}
-                          </div>
-                        </template>
+                        <EstadoControlo :entry="entry" :can-edit="canEditEstado" :api="apiFetch" @changed="carregarResumoEmprestimos" @erro="addToast($event, 'error')" />
                       </td>
                       <td v-if="canManageEntries" class="cell-nowrap" @click.stop>
                         <div class="td-actions">
@@ -2929,31 +2836,7 @@ onBeforeUnmount(() => {
                       <td class="cell-nowrap"><span style="font-size:12px">{{ entry.data || '—' }}</span></td>
                       <td class="cell-nowrap"><strong style="font-size:12px">{{ entry.caixaNr || '—' }}</strong></td>
                       <td class="cell-nowrap" @click.stop>
-                        <template v-if="canEditEstado">
-                          <select
-                            :value="entry.estado"
-                            :class="['estado-select', `estado-${estadoClassSuffix(entry.estado)}`]"
-                            @change="updateAturbEstado(entry, $event.target.value)"
-                          >
-                            <option value="">— —</option>
-                            <option v-for="opt in ESTADO_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
-                          </select>
-                          <div v-if="entry.estado === 'Empréstimo' && entry.estadoMeta" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ entry.estadoMeta.dataSaida }} · {{ entry.estadoMeta.registadoPor }}
-                          </div>
-                          <div v-else-if="entry.estadoChangedAt" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ new Date(entry.estadoChangedAt).toLocaleString('pt-PT') }} · {{ entry.estadoChangedBy }}
-                          </div>
-                        </template>
-                        <template v-else>
-                          <span :class="['estado-badge', `estado-${estadoClassSuffix(entry.estado)}`]">{{ entry.estado || '—' }}</span>
-                          <div v-if="entry.estado === 'Empréstimo' && entry.estadoMeta" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ entry.estadoMeta.dataSaida }}
-                          </div>
-                          <div v-else-if="entry.estadoChangedAt" style="font-size:10px;color:var(--muted);margin-top:2px;">
-                            {{ new Date(entry.estadoChangedAt).toLocaleString('pt-PT') }} · {{ entry.estadoChangedBy }}
-                          </div>
-                        </template>
+                        <EstadoControlo :entry="entry" :can-edit="canEditEstado" :api="apiFetch" @changed="carregarResumoEmprestimos" @erro="addToast($event, 'error')" />
                       </td>
                       <td v-if="canManageEntries" class="cell-nowrap" @click.stop>
                         <div class="td-actions">

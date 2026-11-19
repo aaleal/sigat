@@ -87,20 +87,16 @@ test('eliminar → lixo → restaurar; numero nunca é reutilizado', async () =>
   assert.equal(rest.data.entry.numero, 3);
 });
 
-test('estado Empréstimo cria empréstimo e a devolução repõe Arquivo', async () => {
-  const r = await h.api('PATCH', `/api/documentos/${ids[1]}/estado`, {
-    token, body: { estado: 'Empréstimo', estadoMeta: { requisitante: 'AML' } },
-  });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.estadoMeta.requisitante, 'AML');
-  const lista = await h.api('GET', '/api/colecoes/cartografia/documentos?estado=' + encodeURIComponent('Empréstimo'), { token });
-  assert.equal(lista.data.total, 1);
-  const back = await h.api('PATCH', `/api/documentos/${ids[1]}/estado`, { token, body: { estado: 'Arquivo' } });
-  assert.equal(back.data.estado, 'Arquivo');
-  assert.equal(back.data.estadoMeta, null);
+test('estado Empréstimo não é aceite pela rota de estado', async () => {
+  const r = await h.api('PATCH', `/api/documentos/${ids[1]}/estado`, { token, body: { estado: 'Empréstimo' } });
+  assert.equal(r.status, 400);
+  const ok = await h.api('PATCH', `/api/documentos/${ids[1]}/estado`, { token, body: { estado: 'Arquivo' } });
+  assert.equal(ok.data.estado, 'Arquivo');
+  const consulta = await h.api('PATCH', `/api/documentos/${ids[1]}/estado`, { token, body: { estado: 'Em Consulta' } });
+  assert.equal(consulta.data.estado, 'Em Consulta');
 });
 
 test('não se elimina um documento emprestado', async () => {
-  await h.api('PATCH', `/api/documentos/${ids[0]}/estado`, { token, body: { estado: 'Empréstimo', estadoMeta: { requisitante: 'X' } } });
+  await h.api('POST', `/api/documentos/${ids[0]}/emprestimos`, { token, body: { requisitante: 'X' } });
   assert.equal((await h.api('DELETE', `/api/documentos/${ids[0]}`, { token })).status, 409);
 });

@@ -7,6 +7,7 @@ const { requireRole, comErros } = require('../auth');
 const { queryEntries, paramsDePesquisa } = require('../query');
 const { normalizar } = require('../search');
 const { gerarExportacao, LIMITE_LINHAS } = require('../export');
+const emprestimos = require('../db/repos/emprestimos');
 
 const router = express.Router();
 
@@ -18,6 +19,15 @@ function colecaoValida(req, res, next) {
   if (!c) return res.status(404).json({ message: 'Coleção não encontrada.' });
   req.colecao = c;
   return next();
+}
+
+// `emprestimo=ativo|atraso` restringe a documentos emprestados (ou emprestados com prazo ultrapassado).
+function entradasDaPesquisa(colecao, modo) {
+  const todas = documentos.listar(colecao);
+  if (!modo) return todas;
+  const hoje = emprestimos.hoje();
+  return todas.filter((e) => e.estado === 'Empréstimo' && (modo === 'ativo'
+    || (modo === 'atraso' && e.estadoMeta?.dataPrevista && e.estadoMeta.dataPrevista < hoje)));
 }
 
 function documentoOu404(req, res) {
@@ -54,7 +64,7 @@ router.get('/colecoes/:colecao/documentos', colecaoValida, (req, res) => {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize, 10) || 25));
   const def = campos.listar(req.colecao.id);
-  const { items, ordenacao } = queryEntries(documentos.listar(req.colecao.id), def, paramsDePesquisa(req.query, def));
+  const { items, ordenacao } = queryEntries(entradasDaPesquisa(req.colecao.id, req.query.emprestimo), def, paramsDePesquisa(req.query, def));
   const start = (page - 1) * pageSize;
   res.json({ colecao: req.colecao.id, total: items.length, page, pageSize, ordenacao, items: items.slice(start, start + pageSize) });
 });
@@ -87,18 +97,25 @@ router.get('/colecoes/:colecao/exportar', colecaoValida, (req, res) => {
   const formato = req.query.formato === 'csv' ? 'csv' : 'xlsx';
   const def = campos.listar(req.colecao.id);
   const params = paramsDePesquisa(req.query, def);
-  const { items } = queryEntries(documentos.listar(req.colecao.id), def, params);
+  const { items } = queryEntries(entradasDaPesquisa(req.colecao.id, req.query.emprestimo), def, params);
   if (items.length > LIMITE_LINHAS) {
     return res.status(413).json({ message: `Demasiados resultados para exportar (máximo ${LIMITE_LINHAS}). Refine a pesquisa.` });
   }
 
   const pedidas = String(req.query.colunas || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const hojeIso = emprestimos.hoje();
   const escolhidos = pedidas.length ? def.filter((c) => pedidas.includes(c.chave)) : def;
   const colunas = [
     { rotulo: 'ID SIGAT', valor: (e) => e.numero },
     ...escolhidos.map((c) => ({ rotulo: c.rotulo, valor: (e) => (c.chave === 'estado' && e.estado === '-' ? '' : e[c.chave]) })),
     { rotulo: 'Requisitante', valor: (e) => e.estadoMeta?.requisitante || '' },
     { rotulo: 'Data de saída', valor: (e) => e.estadoMeta?.dataSaida || '' },
+    { rotulo: 'Data prevista', valor: (e) => e.estadoMeta?.dataPrevista || '' },
+    {
+      rotulo: 'Dias de atraso',
+      valor: (e) => (e.estadoMeta?.dataPrevista && e.estadoMeta.dataPrevista < hojeIso
+        ? emprestimos.diasEntre(e.estadoMeta.dataPrevista, hojeIso) : ''),
+    },
   ];
   const criterios = [
     ['Coleção', req.colecao.nome],
@@ -155,9 +172,9 @@ router.put('/documentos/:id', escrita, comErros(async (req, res) => {
 }));
 
 router.patch('/documentos/:id/estado', escrita, comErros(async (req, res) => {
-  const { estado, estadoMeta } = req.body || {};
+  const { estado } = req.body || {};
   if (estado === undefined) return res.status(400).json({ message: 'estado é obrigatório.' });
-  const doc = documentos.definirEstado(req.params.id, String(estado), req.user.username, estadoMeta || {});
+  const doc = documentos.definirEstado(req.params.id, String(estado), req.user.username);
   if (!doc) return res.status(404).json({ message: 'Documento não encontrado.' });
   return res.json({
     message: 'Estado atualizado com sucesso.',

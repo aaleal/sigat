@@ -17,7 +17,7 @@ Estado: auditoria à leitura do código, não corrigido salvo indicação.
 - Histórico de edição guarda só o diff por campo (histórico migrado do JSON também foi convertido).
 - A importação a partir do Excel está em reformulação (Fase 4 do plano): até lá a página "Fontes de Dados" não permite carregar ficheiros.
 - Colunas não importadas do xlsx de Cartografia: TB 2, MP, CDR 2, Data de Entrada, Restauro (passarão a campos dinâmicos na Fase 4).
-- Empréstimo: ponte temporária na rota de estado (requisitante "(não indicado)"); fluxo completo na Fase 3.
+- Empréstimos importados/migrados podem não ter data prevista ("sem prazo"); os alertas por email não existem.
 - ATURB importa só 6 colunas de um livro com muito mais informação (`bdarquivotecnico.xlsx`).
 
 ## Funcionais

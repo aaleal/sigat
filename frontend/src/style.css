@@ -472,6 +472,19 @@ body {
   gap: 20px;
 }
 
+.alerta-emprestimos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
 /* ─── Cards ──────────────────────────────────────────────────────────── */
 .card {
   background: var(--card);
