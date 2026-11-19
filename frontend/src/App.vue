@@ -438,8 +438,8 @@ function onFileDrop(e) {
   isDragOver.value = false;
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
-  if (!file.name.toLowerCase().endsWith('.txt')) {
-    addToast('Apenas ficheiros .txt são aceites.', 'error');
+  if (!/\.(xlsx|xls)$/i.test(file.name)) {
+    addToast('Apenas ficheiros .xlsx são aceites.', 'error');
     return;
   }
   uploadForm.file = file;
@@ -681,7 +681,7 @@ async function onUploadFileChange(event) {
 
 async function uploadDataset() {
   if (!uploadForm.file) {
-    addToast('Selecione um ficheiro TXT antes de carregar.', 'error');
+    addToast('Selecione um ficheiro xlsx antes de carregar.', 'error');
     return;
   }
   uploadLoading.value = true;
@@ -1395,18 +1395,8 @@ function validateEntryForm() {
     const requiredFields = {
       cabecalho: 'Cabeçalho',
       descricao: 'Descrição',
-      nrRegisto: 'Nr. de Registo',
-      cdr: 'CDR',
-      tb: 'TB',
       cota: 'Cota',
       autor: 'Autor',
-      ano: 'Ano',
-      tipo: 'Tipo',
-      cor: 'Cor',
-      dimensao: 'Dimensão',
-      localizacao: 'Localização',
-      assuntos: 'Assuntos',
-      notas: 'Notas',
     };
     for (const [key, label] of Object.entries(requiredFields)) {
       if (!String(form[key] || '').trim()) {
@@ -1873,17 +1863,17 @@ onBeforeUnmount(() => {
           </div>
           <div class="field-grid">
             <div class="field">
-              <label class="field-label">Nr. de Registo <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">Nr. de Registo</label>
               <input type="text" :class="['input', entryFormModal.errors.nrRegisto ? 'input-error' : '']" v-model="entryFormModal.form.nrRegisto" placeholder="ex. 1234" />
               <span v-if="entryFormModal.errors.nrRegisto" class="field-error">{{ entryFormModal.errors.nrRegisto }}</span>
             </div>
             <div class="field">
-              <label class="field-label">CDR <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">CDR</label>
               <input type="text" :class="['input', entryFormModal.errors.cdr ? 'input-error' : '']" v-model="entryFormModal.form.cdr" placeholder="ex. CDR  23 CMLEO" />
               <span v-if="entryFormModal.errors.cdr" class="field-error">{{ entryFormModal.errors.cdr }}</span>
             </div>
             <div class="field">
-              <label class="field-label">TB <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">TB</label>
               <input type="text" :class="['input', entryFormModal.errors.tb ? 'input-error' : '']" v-model="entryFormModal.form.tb" placeholder="ex. TB  12 CMLEO" />
               <span v-if="entryFormModal.errors.tb" class="field-error">{{ entryFormModal.errors.tb }}</span>
             </div>
@@ -1898,38 +1888,38 @@ onBeforeUnmount(() => {
               <span v-if="entryFormModal.errors.autor" class="field-error">{{ entryFormModal.errors.autor }}</span>
             </div>
             <div class="field">
-              <label class="field-label">Ano <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">Ano</label>
               <input type="text" :class="['input', entryFormModal.errors.ano ? 'input-error' : '']" v-model="entryFormModal.form.ano" placeholder="ex. 1856" />
               <span v-if="entryFormModal.errors.ano" class="field-error">{{ entryFormModal.errors.ano }}</span>
             </div>
             <div class="field">
-              <label class="field-label">Tipo <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">Tipo</label>
               <input type="text" :class="['input', entryFormModal.errors.tipo ? 'input-error' : '']" v-model="entryFormModal.form.tipo" placeholder="ex. Planta" />
               <span v-if="entryFormModal.errors.tipo" class="field-error">{{ entryFormModal.errors.tipo }}</span>
             </div>
             <div class="field">
-              <label class="field-label">Cor <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">Cor</label>
               <input type="text" :class="['input', entryFormModal.errors.cor ? 'input-error' : '']" v-model="entryFormModal.form.cor" placeholder="ex. Policromia" />
               <span v-if="entryFormModal.errors.cor" class="field-error">{{ entryFormModal.errors.cor }}</span>
             </div>
             <div class="field">
-              <label class="field-label">Dimensão <span style="color:var(--danger)">*</span></label>
+              <label class="field-label">Dimensão</label>
               <input type="text" :class="['input', entryFormModal.errors.dimensao ? 'input-error' : '']" v-model="entryFormModal.form.dimensao" placeholder="ex. 60x90 cm" />
               <span v-if="entryFormModal.errors.dimensao" class="field-error">{{ entryFormModal.errors.dimensao }}</span>
             </div>
           </div>
           <div class="field">
-            <label class="field-label">Localização <span style="color:var(--danger)">*</span></label>
+            <label class="field-label">Localização</label>
             <input type="text" :class="['input', entryFormModal.errors.localizacao ? 'input-error' : '']" v-model="entryFormModal.form.localizacao" placeholder="ex. Gaveta 3, Armário B" />
             <span v-if="entryFormModal.errors.localizacao" class="field-error">{{ entryFormModal.errors.localizacao }}</span>
           </div>
           <div class="field">
-            <label class="field-label">Assuntos <span style="color:var(--danger)">*</span></label>
+            <label class="field-label">Assuntos</label>
             <textarea :class="['input', entryFormModal.errors.assuntos ? 'input-error' : '']" rows="2" v-model="entryFormModal.form.assuntos" placeholder="ex. Topografia; Urbanismo; Infraestruturas"></textarea>
             <span v-if="entryFormModal.errors.assuntos" class="field-error">{{ entryFormModal.errors.assuntos }}</span>
           </div>
           <div class="field">
-            <label class="field-label">Notas <span style="color:var(--danger)">*</span></label>
+            <label class="field-label">Notas</label>
             <textarea :class="['input', entryFormModal.errors.notas ? 'input-error' : '']" rows="2" v-model="entryFormModal.form.notas" placeholder="ex. Documento em bom estado de conservação"></textarea>
             <span v-if="entryFormModal.errors.notas" class="field-error">{{ entryFormModal.errors.notas }}</span>
           </div>
@@ -2511,7 +2501,7 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <p class="card-title">Carregar fonte — Cartografia</p>
-                <p class="card-subtitle">Ficheiro .txt com os campos cartográficos por entrada</p>
+                <p class="card-subtitle">Ficheiro .xlsx (folha BD) com os campos cartográficos por entrada</p>
               </div>
             </div>
             <div class="card-body">
@@ -2531,7 +2521,7 @@ onBeforeUnmount(() => {
                   @click="$refs.fileInputRef.click()"
                   role="button"
                   tabindex="0"
-                  aria-label="Clique ou arraste um ficheiro TXT"
+                  aria-label="Clique ou arraste um ficheiro xlsx"
                   @keydown.enter="$refs.fileInputRef.click()"
                   @keydown.space.prevent="$refs.fileInputRef.click()"
                   style="margin-bottom: 16px;"
@@ -2540,7 +2530,7 @@ onBeforeUnmount(() => {
                     id="datasetFile"
                     ref="fileInputRef"
                     type="file"
-                    accept=".txt"
+                    accept=".xlsx,.xls"
                     required
                     style="display:none"
                     @change="onUploadFileChange"
@@ -2571,7 +2561,7 @@ onBeforeUnmount(() => {
                       <span v-if="isDragOver">Solte para carregar</span>
                       <span v-else><strong>Clique para selecionar</strong> ou arraste um ficheiro aqui</span>
                     </p>
-                    <p class="dropzone-hint">Apenas ficheiros <code>.txt</code> &middot; máx. 20 MB</p>
+                    <p class="dropzone-hint">Apenas ficheiros <code>.xlsx</code> &middot; máx. 20 MB</p>
                   </template>
                 </div>
 

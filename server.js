@@ -9,6 +9,7 @@ const { existsSync } = require('fs');
 const { randomUUID } = require('crypto');
 const { parseDatabaseTxt } = require('./src/parser');
 const { parseAturbXlsx } = require('./src/parserXlsx');
+const { parseCartografiaXlsx, attachNrRegisto } = require('./src/parserCartografiaXlsx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -285,19 +286,58 @@ app.get('/api/datasets', authMiddleware, async (_req, res) => {
 
 app.post('/api/datasets/upload', authMiddleware, requireRole('admin', 'write'), upload.single('file'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ message: 'Ficheiro TXT obrigatório.' });
+    return res.status(400).json({ message: 'Ficheiro xlsx obrigatório.' });
+  }
+
+  const isXlsx = /\.(xlsx|xls)$/i.test(req.file.originalname);
+  const isTxt = /\.txt$/i.test(req.file.originalname);
+  if (!isXlsx && !isTxt) {
+    return res.status(400).json({ message: 'Apenas ficheiros .xlsx são aceites.' });
   }
 
   const inputName = (req.body?.name || '').trim();
-  const datasetName = inputName || req.file.originalname.replace(/\.txt$/i, '');
+  const datasetName = inputName || req.file.originalname.replace(/\.(txt|xlsx|xls)$/i, '');
   if (!datasetName) {
     return res.status(400).json({ message: 'Nome da base de dados inválido.' });
   }
 
-  const txtContent = req.file.buffer.toString('utf-8');
-  const parsed = parseDatabaseTxt(txtContent);
-
   const registry = await readJson(DATASETS_FILE, { activeDatasetId: null, datasets: [] });
+
+  let parsed;
+  if (isXlsx) {
+    parsed = parseCartografiaXlsx(req.file.buffer);
+    if (parsed.errors.length > 0 && parsed.entries.length === 0) {
+      return res.status(400).json({ message: parsed.errors[0].message, errors: parsed.errors });
+    }
+
+    // O xlsx não traz Nº de Registo: reaproveita-o da cartografia mais recente já importada.
+    if (!parsed.hasNrRegisto) {
+      const reference = registry.datasets
+        .filter((d) => (d.type || 'cartografia') === 'cartografia' && d.entryCount > 0)
+        .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
+      const refPayload = reference
+        ? await readJson(path.join(DATASET_CONTENT_DIR, `${reference.id}.json`), { entries: [] })
+        : { entries: [] };
+      const { matched, missing } = attachNrRegisto(parsed.entries, refPayload.entries || []);
+      if (reference) {
+        parsed.warnings.unshift({
+          entry: 0,
+          section: 'nrRegisto',
+          message: `Nº de Registo obtido de "${reference.name}" para ${matched} entrada(s); ${missing.length} sem correspondência.`,
+        });
+      }
+      for (const entry of missing) {
+        parsed.warnings.push({
+          entry: entry.sourceEntryNumber,
+          section: 'nrRegisto',
+          message: `Sem Nº de Registo: ${entry.cota || 'sem cota'} — ${entry.descricao.slice(0, 60)}`,
+        });
+      }
+    }
+  } else {
+    parsed = parseDatabaseTxt(req.file.buffer.toString('utf-8'));
+  }
+
   const datasetId = randomUUID();
   const metadata = {
     id: datasetId,
