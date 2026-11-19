@@ -92,4 +92,21 @@ function queryEntries(entries, campos, params = {}) {
   return { items: resultados.map((r) => r.entry), ordenacao: 'campos' };
 }
 
-module.exports = { queryEntries, normalizar };
+// Lê da query string os parâmetros de pesquisa (q, filtros por campo, vazios, ids, sortKeys).
+function paramsDePesquisa(query, campos) {
+  const filtros = {};
+  for (const c of campos) {
+    const v = (query[c.chave] || '').toString().trim();
+    if (v) filtros[c.chave] = v;
+  }
+  const lista = (v) => (v || '').toString().split(',').map((s) => s.trim()).filter(Boolean);
+  return {
+    q: (query.q || '').toString().trim(),
+    filtros,
+    vazios: lista(query.vazios),
+    ids: lista(query.ids),
+    sortKeys: (query.sortKeys || '').toString().trim(),
+  };
+}
+
+module.exports = { queryEntries, paramsDePesquisa, normalizar };

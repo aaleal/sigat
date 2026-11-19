@@ -62,28 +62,25 @@ test('protegerFormula', () => {
 });
 
 let token;
-let datasetId;
 before(async () => {
   await h.iniciar();
   token = await h.login();
-  const buf = h.xlsxCartografia([
-    h.linhaCartografia({ descricao: 'Planta de Lisboa', cota: 'MP 12', autor: 'Silva' }),
-    h.linhaCartografia({ descricao: '=SUM(1) perigoso', cota: 'MP 13', autor: 'Silva' }),
-    h.linhaCartografia({ descricao: 'Mapa de Sintra', cota: 'MP 14', autor: 'Costa', emprestimo: 'Sim' }),
+  h.semear('cartografia', [
+    { descricao: 'Planta de Lisboa', cota: 'MP 12', autor: 'Silva' },
+    { descricao: '=SUM(1) perigoso', cota: 'MP 13', autor: 'Silva' },
+    { descricao: 'Mapa de Sintra', cota: 'MP 14', autor: 'Costa' },
   ]);
-  const r = await h.api('POST', '/api/datasets/upload', { token, form: h.formComFicheiro(buf, 'x.xlsx') });
-  datasetId = r.data.metadata.id;
 });
 after(h.parar);
 
-test('GET /entries pesquisa tolerante e indica ordenação', async () => {
-  const { data } = await h.api('GET', `/api/entries?datasetId=${datasetId}&q=${encodeURIComponent('PLANTA')}`, { token });
+test('pesquisa tolerante e indica ordenação', async () => {
+  const { data } = await h.api('GET', `/api/colecoes/cartografia/documentos?q=${encodeURIComponent('PLANTA')}`, { token });
   assert.equal(data.total, 1);
   assert.equal(data.ordenacao, 'relevancia');
 });
 
 test('exportação CSV: BOM, ; e total igual ao da pesquisa', async () => {
-  const url = `/api/entries/export?datasetId=${datasetId}&formato=csv&autor=silva`;
+  const url = '/api/colecoes/cartografia/exportar?formato=csv&autor=silva';
   const { status, data, headers } = await h.api('GET', url, { token });
   assert.equal(status, 200);
   assert.match(headers.get('content-disposition'), /attachment; filename="sigat-cartografia-\d{8}-\d{4}\.csv"/);
@@ -96,7 +93,7 @@ test('exportação CSV: BOM, ; e total igual ao da pesquisa', async () => {
 });
 
 test('exportação xlsx tem folha Critérios e linhas = total', async () => {
-  const { data } = await h.api('GET', `/api/entries/export?datasetId=${datasetId}&formato=xlsx&q=sintra`, { token });
+  const { data } = await h.api('GET', '/api/colecoes/cartografia/exportar?formato=xlsx&q=sintra', { token });
   const wb = xlsx.read(data, { type: 'buffer' });
   assert.deepEqual(wb.SheetNames, ['SIGAT', 'Critérios']);
   const rows = xlsx.utils.sheet_to_json(wb.Sheets.SIGAT, { header: 1 });
@@ -104,13 +101,13 @@ test('exportação xlsx tem folha Critérios e linhas = total', async () => {
 });
 
 test('exportação por ids e colunas', async () => {
-  const { data } = await h.api('GET', `/api/entries/export?datasetId=${datasetId}&formato=csv&ids=1,3&colunas=cota`, { token });
+  const { data } = await h.api('GET', '/api/colecoes/cartografia/exportar?formato=csv&ids=1,3&colunas=cota', { token });
   const linhas = data.toString('utf-8').trim().split('\r\n');
   assert.equal(linhas.length, 3);
   assert.ok(linhas[0].includes('ID SIGAT;Cota;Requisitante'));
 });
 
 test('exportação exige autenticação', async () => {
-  const { status } = await h.api('GET', `/api/entries/export?datasetId=${datasetId}`);
+  const { status } = await h.api('GET', '/api/colecoes/cartografia/exportar');
   assert.equal(status, 401);
 });

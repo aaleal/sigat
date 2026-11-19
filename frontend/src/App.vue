@@ -400,7 +400,7 @@ const cartGroups = computed(() => {
 });
 
 function cartExportParams(group) {
-  return new URLSearchParams({ datasetId: group.datasetId, ids: group.ids.join(',') });
+  return new URLSearchParams({ ids: group.ids.join(',') });
 }
 
 function formatBytes(value) {
@@ -522,7 +522,7 @@ async function loadDistinctOptions() {
   const fields = ['autor', 'ano', 'tipo', 'cor', 'dimensao'];
   const results = await Promise.all(
     fields.map((f) =>
-      apiFetch(`/api/entries/distinct?datasetId=${selectedDatasetId.value}&field=${f}`)
+      apiFetch(`/api/colecoes/${selectedDatasetId.value}/documentos/distinct?field=${f}`)
         .then((r) => ({ field: f, suggestions: r.suggestions || [] }))
         .catch(() => ({ field: f, suggestions: [] }))
     )
@@ -530,18 +530,6 @@ async function loadDistinctOptions() {
   const opts = {};
   for (const { field, suggestions } of results) opts[field] = suggestions;
   distinctOptions.value = opts;
-}
-
-async function openErrorsModal(dataset) {
-  try {
-    const payload = await apiFetch(`/api/datasets/${dataset.id}/errors`);
-    errorsModal.dataset = dataset;
-    errorsModal.errors = payload.parseErrors || [];
-    errorsModal.warnings = payload.parseWarnings || [];
-    errorsModal.open = true;
-  } catch (error) {
-    addToast(error.message, 'error');
-  }
 }
 
 function openEntryModal(entry) {
@@ -558,9 +546,9 @@ async function updateEstado(entry, newEstado) {
     estadoMeta = { dataSaida, registadoPor: user.value?.username || '' };
   }
   try {
-    const result = await apiFetch(`/api/entries/${selectedDatasetId.value}/estado`, {
+    const result = await apiFetch(`/api/documentos/${entry.id}/estado`, {
       method: 'PATCH',
-      body: JSON.stringify({ sourceEntryNumber: entry.sourceEntryNumber, estado: newEstado, estadoMeta }),
+      body: JSON.stringify({ estado: newEstado, estadoMeta }),
     });
     entry.estado = result.estado;
     entry.estadoMeta = result.estadoMeta;
@@ -579,21 +567,19 @@ async function loadUsers() {
   users.value = await apiFetch('/api/users');
 }
 
+// As "fontes de dados" passaram a coleções fixas (cartografia e aturb); o id da coleção é usado como datasetId.
 async function loadDatasets() {
-  const payload = await apiFetch('/api/datasets');
-  datasets.value = payload.datasets || [];
-
-  const exists = datasets.value.some((item) => item.id === selectedDatasetId.value);
-  if (!exists) {
-    selectedDatasetId.value = '';
-    entries.value = [];
-    totalEntries.value = 0;
-  }
+  const lista = await apiFetch('/api/colecoes');
+  datasets.value = lista.map((c) => ({ id: c.id, name: c.nome, type: c.id, entryCount: c.total }));
+  selectedDatasetId.value = 'cartografia';
+  aturbSelectedDatasetId.value = 'aturb';
+  binDatasetId.value = 'cartografia';
+  binAturbDatasetId.value = 'aturb';
+  if (!historySelectedDatasetId.value) historySelectedDatasetId.value = 'cartografia';
 }
 
 function buildEntriesQuery() {
   const params = new URLSearchParams({
-    datasetId: selectedDatasetId.value,
     page: String(page.value),
     pageSize: String(pageSize.value),
   });
@@ -619,7 +605,7 @@ async function loadEntries() {
   }
   entriesLoading.value = true;
   try {
-    const payload = await apiFetch(`/api/entries?${buildEntriesQuery().toString()}`);
+    const payload = await apiFetch(`/api/colecoes/${selectedDatasetId.value}/documentos?${buildEntriesQuery().toString()}`);
     entries.value = payload.items || [];
     totalEntries.value = payload.total || 0;
     ordenacao.value = payload.ordenacao || 'campos';
@@ -639,6 +625,8 @@ async function bootstrap() {
   await loadDatasets();
   await loadEntries();
   await loadDistinctOptions();
+  await loadAturbEntries();
+  await loadAturbDistinctOptions();
   await loadUsers();
 }
 
@@ -664,6 +652,8 @@ async function login() {
     await loadDatasets();
     await loadEntries();
     await loadDistinctOptions();
+    await loadAturbEntries();
+    await loadAturbDistinctOptions();
     await loadUsers();
   } catch (error) {
     addToast(error.message, 'error');
@@ -693,98 +683,6 @@ function logout() {
   binAturbEntries.value = [];
   historyItems.value = [];
   localStorage.removeItem('sigat_token');
-}
-
-async function onUploadFileChange(event) {
-  const target = event.target;
-  uploadForm.file = target.files?.[0] || null;
-}
-
-async function uploadDataset() {
-  if (!uploadForm.file) {
-    addToast('Selecione um ficheiro xlsx antes de carregar.', 'error');
-    return;
-  }
-  uploadLoading.value = true;
-  uploadParseErrors.value = [];
-  uploadParseWarnings.value = [];
-  const body = new FormData();
-  if (uploadForm.name.trim()) body.append('name', uploadForm.name.trim());
-  body.append('file', uploadForm.file);
-
-  try {
-    const payload = await apiFetch('/api/datasets/upload', {
-      method: 'POST',
-      body,
-      skipJson: true,
-    });
-
-    uploadParseErrors.value = payload.errors || [];
-    uploadParseWarnings.value = payload.warnings || [];
-    addToast(payload.message, payload.errors?.length > 0 ? 'warning' : 'success');
-
-    uploadForm.name = '';
-    uploadForm.file = null;
-    const fileInput = document.getElementById('datasetFile');
-    if (fileInput) fileInput.value = '';
-
-    await loadDatasets();
-    await loadEntries();
-  } catch (error) {
-    addToast(error.message, 'error');
-  } finally {
-    uploadLoading.value = false;
-  }
-}
-
-async function renameDataset(dataset) {
-  const nextName = await openModal({
-    type: 'input',
-    title: 'Editar nome',
-    message: 'Introduza o novo nome para esta fonte de dados.',
-    inputLabel: 'Nome',
-    inputValue: dataset.name || '',
-    inputPlaceholder: 'Nome da fonte de dados',
-    confirmLabel: 'Guardar',
-  });
-  if (!nextName) return;
-
-  try {
-    await apiFetch(`/api/datasets/${dataset.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ name: nextName }),
-    });
-    addToast('Nome atualizado com sucesso.', 'success');
-    await loadDatasets();
-    await loadEntries();
-  } catch (error) {
-    addToast(error.message, 'error');
-  }
-}
-
-async function deleteDataset(dataset) {
-  const confirmed = await openModal({
-    type: 'confirm',
-    title: 'Remover fonte de dados',
-    message: `Tem a certeza que pretende remover "${dataset.name}"? Esta ação é irreversível.`,
-    confirmLabel: 'Remover',
-    confirmDanger: true,
-  });
-  if (!confirmed) return;
-
-  try {
-    await apiFetch(`/api/datasets/${dataset.id}`, { method: 'DELETE' });
-    if (selectedDatasetId.value === dataset.id) {
-      selectedDatasetId.value = '';
-      clearSearchFilters();
-      entries.value = [];
-      totalEntries.value = 0;
-    }
-    await loadDatasets();
-    addToast('Fonte de dados removida com sucesso.', 'success');
-  } catch (error) {
-    addToast(error.message, 'error');
-  }
 }
 
 async function searchEntries() {
@@ -896,6 +794,8 @@ function switchPage(pageName) {
   if (pageName === 'accounts' && !isAdmin.value) return;
   if (pageName === 'sources' && !canAccessSources.value) return;
   currentPage.value = pageName;
+  if (pageName === 'bin') { loadBin(); loadAturbBin(); }
+  if (pageName === 'history') loadHistory();
 }
 
 // ── ATURB helpers ─────────────────────────────────────────────────────────
@@ -911,7 +811,6 @@ function clearAturbFilters() {
 
 function buildAturbEntriesQuery() {
   const params = new URLSearchParams({
-    datasetId: aturbSelectedDatasetId.value,
     page: String(aturbPage.value),
     pageSize: String(pageSize.value),
   });
@@ -932,7 +831,7 @@ async function loadAturbEntries() {
   }
   aturbEntriesLoading.value = true;
   try {
-    const payload = await apiFetch(`/api/entries?${buildAturbEntriesQuery().toString()}`);
+    const payload = await apiFetch(`/api/colecoes/${aturbSelectedDatasetId.value}/documentos?${buildAturbEntriesQuery().toString()}`);
     aturbEntries.value = payload.items || [];
     aturbTotalEntries.value = payload.total || 0;
     aturbOrdenacao.value = payload.ordenacao || 'campos';
@@ -949,7 +848,7 @@ async function loadAturbDistinctOptions() {
   const fields = ['autor', 'local', 'data', 'caixaNr'];
   const results = await Promise.all(
     fields.map((f) =>
-      apiFetch(`/api/entries/distinct?datasetId=${aturbSelectedDatasetId.value}&field=${f}`)
+      apiFetch(`/api/colecoes/${aturbSelectedDatasetId.value}/documentos/distinct?field=${f}`)
         .then((r) => ({ field: f, suggestions: r.suggestions || [] }))
         .catch(() => ({ field: f, suggestions: [] }))
     )
@@ -1041,9 +940,9 @@ async function updateAturbEstado(entry, newEstado) {
     estadoMeta = { dataSaida, registadoPor: user.value?.username || '' };
   }
   try {
-    const result = await apiFetch(`/api/entries/${aturbSelectedDatasetId.value}/estado`, {
+    const result = await apiFetch(`/api/documentos/${entry.id}/estado`, {
       method: 'PATCH',
-      body: JSON.stringify({ sourceEntryNumber: entry.sourceEntryNumber, estado: newEstado, estadoMeta }),
+      body: JSON.stringify({ estado: newEstado, estadoMeta }),
     });
     entry.estado = result.estado;
     entry.estadoMeta = result.estadoMeta;
@@ -1054,58 +953,6 @@ async function updateAturbEstado(entry, newEstado) {
   }
 }
 
-function onAturbFileDrop(e) {
-  aturbIsDragOver.value = false;
-  const file = e.dataTransfer?.files?.[0];
-  if (!file) return;
-  if (!file.name.toLowerCase().match(/\.(xlsx|xls)$/)) {
-    addToast('Apenas ficheiros .xlsx são aceites.', 'error');
-    return;
-  }
-  aturbUploadForm.file = file;
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  const inp = document.getElementById('aturbDatasetFile');
-  if (inp) inp.files = dt.files;
-}
-
-async function onAturbUploadFileChange(event) {
-  aturbUploadForm.file = event.target?.files?.[0] || null;
-}
-
-async function uploadAturbDataset() {
-  if (!aturbUploadForm.file) {
-    addToast('Selecione um ficheiro XLSX antes de carregar.', 'error');
-    return;
-  }
-  aturbUploadLoading.value = true;
-  aturbUploadParseErrors.value = [];
-  aturbUploadParseWarnings.value = [];
-  const body = new FormData();
-  if (aturbUploadForm.name.trim()) body.append('name', aturbUploadForm.name.trim());
-  body.append('file', aturbUploadForm.file);
-  try {
-    const payload = await apiFetch('/api/datasets/upload-aturb', {
-      method: 'POST',
-      body,
-      skipJson: true,
-    });
-    aturbUploadParseErrors.value = payload.errors || [];
-    aturbUploadParseWarnings.value = payload.warnings || [];
-    addToast(payload.message, payload.errors?.length > 0 ? 'warning' : 'success');
-    aturbUploadForm.name = '';
-    aturbUploadForm.file = null;
-    const fi = document.getElementById('aturbDatasetFile');
-    if (fi) fi.value = '';
-    await loadDatasets();
-  } catch (error) {
-    addToast(error.message, 'error');
-  } finally {
-    aturbUploadLoading.value = false;
-  }
-}
-
-// ── Cart functions ────────────────────────────────────────────────────────
 function cartKey(datasetId, entry) {
   return `${datasetId}__${entry.sourceEntryNumber}`;
 }
@@ -1255,34 +1102,33 @@ function exportCartPDF() {
 }
 
 // ── Bin functions ─────────────────────────────────────────────────────────
-async function loadBin(datasetId) {
-  if (!datasetId) { binEntries.value = []; return; }
+async function loadBin() {
   binLoading.value = true;
   try {
-    const payload = await apiFetch(`/api/entries/${datasetId}/deleted`);
+    const payload = await apiFetch('/api/colecoes/cartografia/eliminados');
     binEntries.value = payload.deletedEntries || [];
   } catch { binEntries.value = []; }
   finally { binLoading.value = false; }
 }
 
-async function loadAturbBin(datasetId) {
-  if (!datasetId) { binAturbEntries.value = []; return; }
+async function loadAturbBin() {
   binLoading.value = true;
   try {
-    const payload = await apiFetch(`/api/entries/${datasetId}/deleted`);
+    const payload = await apiFetch('/api/colecoes/aturb/eliminados');
     binAturbEntries.value = payload.deletedEntries || [];
   } catch { binAturbEntries.value = []; }
   finally { binLoading.value = false; }
 }
 
-async function restoreFromBin(datasetId, entry) {
+async function restoreFromBin(entry) {
   try {
-    await apiFetch(`/api/entries/${datasetId}/${entry.sourceEntryNumber}/restore`, { method: 'POST' });
-    binEntries.value = binEntries.value.filter(e => e.sourceEntryNumber !== entry.sourceEntryNumber);
-    binAturbEntries.value = binAturbEntries.value.filter(e => e.sourceEntryNumber !== entry.sourceEntryNumber);
+    await apiFetch(`/api/documentos/${entry.id}/restaurar`, { method: 'POST' });
+    binEntries.value = binEntries.value.filter(e => e.id !== entry.id);
+    binAturbEntries.value = binAturbEntries.value.filter(e => e.id !== entry.id);
     addToast('Entrada restaurada com sucesso.', 'success');
     await loadDatasets();
     await loadEntries();
+    await loadAturbEntries();
   } catch (e) { addToast(e.message, 'error'); }
 }
 
@@ -1292,7 +1138,7 @@ async function loadHistory() {
   if (!dsId) { historyItems.value = []; return; }
   historyLoading.value = true;
   try {
-    const payload = await apiFetch(`/api/history/${dsId}`);
+    const payload = await apiFetch(`/api/colecoes/${dsId}/historico`);
     historyItems.value = payload.history || [];
   } catch { historyItems.value = []; }
   finally { historyLoading.value = false; }
@@ -1341,7 +1187,18 @@ function historyDetailsDisplay(item) {
     return parts.join(' · ');
   }
 
-  // Edit — show changed fields
+  // Edit — formato novo (diff por campo)
+  if (item.action === 'edit' && d.alteracoes) {
+    const corta = (v) => { const s = String(v ?? ''); return s.length > 40 ? `${s.slice(0, 40)}…` : s; };
+    return Object.entries(d.alteracoes).map(([k, v]) => `${k}: "${corta(v.de)}" → "${corta(v.para)}"`).join(' · ') || 'Sem alterações visíveis';
+  }
+
+  // Create / Delete / Restore — formato novo
+  if (['create', 'delete', 'restore'].includes(item.action) && typeof d.entrada === 'string') {
+    return d.entrada ? `Entrada: ${d.entrada}` : '';
+  }
+
+  // Edit — show changed fields (formato antigo)
   if (item.action === 'edit' && d.prev && d.next) {
     const ignore = new Set(['sourceEntryNumber', 'updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'estadoChangedAt', 'estadoChangedBy', 'estadoMeta']);
     const changed = [];
@@ -1459,10 +1316,10 @@ async function saveEntry() {
     }
 
     if (mode === 'create') {
-      await apiFetch(`/api/entries/${datasetId}`, { method: 'POST', body: JSON.stringify(data) });
+      await apiFetch(`/api/colecoes/${datasetId}/documentos`, { method: 'POST', body: JSON.stringify(data) });
       addToast('Entrada criada com sucesso.', 'success');
     } else {
-      await apiFetch(`/api/entries/${datasetId}/${originalEntry.sourceEntryNumber}`, {
+      await apiFetch(`/api/documentos/${originalEntry.id}`, {
         method: 'PUT', body: JSON.stringify(data),
       });
       addToast('Entrada atualizada com sucesso.', 'success');
@@ -1485,7 +1342,7 @@ async function deleteEntry(datasetId, type, entry) {
   });
   if (!confirmed) return;
   try {
-    await apiFetch(`/api/entries/${datasetId}/${entry.sourceEntryNumber}`, { method: 'DELETE' });
+    await apiFetch(`/api/documentos/${entry.id}`, { method: 'DELETE' });
     addToast('Entrada movida para o lixo.', 'success');
     await loadDatasets();
     if (type === 'cartografia') await loadEntries();
@@ -2200,77 +2057,12 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <p class="card-title">Pesquisa de Entradas</p>
-                <p class="card-subtitle">Selecione uma fonte de dados e pesquise por qualquer campo</p>
+                <p class="card-subtitle">Pesquise por qualquer campo</p>
               </div>
             </div>
             <div class="card-body">
               <form @submit.prevent="searchEntries">
-                <!-- Row 1: dataset selector -->
-                <div class="field" style="margin-bottom: 12px;">
-                  <label class="field-label required" for="dataset-select">Fonte de Dados</label>
-                  <!-- Custom rich dropdown -->
-                  <div class="ds-picker" id="ds-picker-root">
-                    <button
-                      type="button"
-                      class="ds-picker-trigger"
-                      :class="{ open: datasetDropdownOpen, 'has-value': !!selectedDatasetId }"
-                      @click="datasetDropdownOpen = !datasetDropdownOpen"
-                      id="dataset-select"
-                      aria-haspopup="listbox"
-                      :aria-expanded="datasetDropdownOpen"
-                    >
-                      <template v-if="selectedDataset">
-                        <span class="ds-trigger-dot" :class="(selectedDataset.parseErrorCount || 0) > 0 ? 'status-dot-inactive' : 'status-dot-active'" :title="(selectedDataset.parseErrorCount || 0) > 0 ? `${selectedDataset.parseErrorCount} erro(s)` : 'Sem erros'"></span>
-                        <span class="ds-trigger-name">{{ selectedDataset.name }}</span>
-                        <span class="ds-trigger-meta">{{ (selectedDataset.entryCount || 0).toLocaleString('pt-PT') }} entradas &middot; {{ formatDate(selectedDataset.uploadedAt) }}</span>
-                      </template>
-                      <template v-else>
-                        <span class="ds-trigger-placeholder">Selecione uma fonte de dados...</span>
-                      </template>
-                      <svg class="ds-trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-
-                    <div v-if="datasetDropdownOpen" class="ds-dropdown" role="listbox">
-                      <div v-if="cartografiaDatasets.length === 0" class="ds-dropdown-empty">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                        Nenhuma fonte disponível
-                      </div>
-                      <button
-                        v-for="ds in cartografiaDatasets"
-                        :key="ds.id"
-                        type="button"
-                        class="ds-option"
-                        :class="{ selected: selectedDatasetId === ds.id }"
-                        role="option"
-                        :aria-selected="selectedDatasetId === ds.id"
-                        @click="selectDataset(ds.id)"
-                      >
-                        <div class="ds-option-top">
-                          <span :class="['status-dot', (ds.parseErrorCount || 0) > 0 ? 'status-dot-inactive' : 'status-dot-active']" style="margin-top:2px;" :title="(ds.parseErrorCount || 0) > 0 ? `${ds.parseErrorCount} erro(s)` : 'Sem erros'"></span>
-                          <span class="ds-option-name">{{ ds.name }}</span>
-                          <svg v-if="selectedDatasetId === ds.id" class="ds-option-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        </div>
-                        <div class="ds-option-meta">
-                          <span>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                            {{ formatDate(ds.uploadedAt) }}
-                          </span>
-                          <span>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                            {{ (ds.entryCount || 0).toLocaleString('pt-PT') }} entradas
-                          </span>
-                          <span>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                            {{ formatBytes(ds.sizeBytes) }}
-                          </span>
-                          <span>por {{ ds.uploadedBy }}</span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Row 2: search input + buttons inline -->
+                <!-- Search input + buttons inline -->
                 <div class="search-inline-row" style="margin-bottom: 12px;">
                   <div class="field" style="flex: 1; min-width: 0;">
                     <label class="field-label" for="search-q">Pesquisa livre</label>
@@ -2343,12 +2135,12 @@ onBeforeUnmount(() => {
 
             <template v-else>
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
-                <span>Fonte: <strong>{{ selectedDataset?.name }}</strong></span>
+                <span>{{ selectedDataset?.name }}</span>
                 <span>{{ totalEntries.toLocaleString('pt-PT') }} resultado{{ totalEntries !== 1 ? 's' : '' }}</span>
                 <span v-if="filters.q.trim() && ordenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
                 <button v-else-if="filters.q.trim() && sortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="sortKeys = []; page = 1; loadEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-                  <ExportarBotao url="/api/entries/export" :get-params="buildEntriesQuery" :token="token" :disabled="totalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
+                  <ExportarBotao :url="`/api/colecoes/${selectedDatasetId}/exportar`" :get-params="buildEntriesQuery" :token="token" :disabled="totalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                   <button v-if="canManageEntries" class="btn btn-primary btn-sm" type="button" @click="openCreateEntry(selectedDatasetId, 'cartografia')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Adicionar entrada
@@ -2525,8 +2317,18 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <!-- ── Sources page ──────────────────────────────────────────────── -->
+        <!-- ── Sources page (temporário até à Fase 4: importação incremental) ── -->
         <section v-if="currentPage === 'sources'">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <p class="card-title">Importações</p>
+                <p class="card-subtitle">A atualização a partir de Excel está a ser reformulada (comparação, pré-visualização e preservação de estados e edições).</p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section v-if="false">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; align-items: start;">
           <!-- Cartografia Upload card -->
           <div class="card">
@@ -2913,65 +2715,11 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <p class="card-title">Pesquisa de Entradas — ATURB</p>
-                <p class="card-subtitle">Selecione uma fonte de dados ATURB e pesquise por qualquer campo</p>
+                <p class="card-subtitle">Pesquise por qualquer campo</p>
               </div>
             </div>
             <div class="card-body">
               <form @submit.prevent="searchAturbEntries">
-                <!-- Dataset selector -->
-                <div class="field" style="margin-bottom: 12px;">
-                  <label class="field-label required" for="aturb-dataset-select">Fonte de Dados ATURB</label>
-                  <div class="ds-picker" id="aturb-ds-picker-root">
-                    <button
-                      type="button"
-                      class="ds-picker-trigger"
-                      :class="{ open: aturbDatasetDropdownOpen, 'has-value': !!aturbSelectedDatasetId }"
-                      @click="aturbDatasetDropdownOpen = !aturbDatasetDropdownOpen"
-                      id="aturb-dataset-select"
-                      aria-haspopup="listbox"
-                      :aria-expanded="aturbDatasetDropdownOpen"
-                    >
-                      <template v-if="aturbSelectedDataset">
-                        <span class="ds-trigger-dot" :class="(aturbSelectedDataset.parseErrorCount || 0) > 0 ? 'status-dot-inactive' : 'status-dot-active'"></span>
-                        <span class="ds-trigger-name">{{ aturbSelectedDataset.name }}</span>
-                        <span class="ds-trigger-meta">{{ (aturbSelectedDataset.entryCount || 0).toLocaleString('pt-PT') }} entradas &middot; {{ formatDate(aturbSelectedDataset.uploadedAt) }}</span>
-                      </template>
-                      <template v-else>
-                        <span class="ds-trigger-placeholder">Selecione uma fonte ATURB...</span>
-                      </template>
-                      <svg class="ds-trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    <div v-if="aturbDatasetDropdownOpen" class="ds-dropdown" role="listbox">
-                      <div v-if="aturbDatasets.length === 0" class="ds-dropdown-empty">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                        Nenhuma fonte ATURB disponível
-                      </div>
-                      <button
-                        v-for="ds in aturbDatasets"
-                        :key="ds.id"
-                        type="button"
-                        class="ds-option"
-                        :class="{ selected: aturbSelectedDatasetId === ds.id }"
-                        role="option"
-                        :aria-selected="aturbSelectedDatasetId === ds.id"
-                        @click="selectAturbDataset(ds.id)"
-                      >
-                        <div class="ds-option-top">
-                          <span :class="['status-dot', (ds.parseErrorCount || 0) > 0 ? 'status-dot-inactive' : 'status-dot-active']" style="margin-top:2px;"></span>
-                          <span class="ds-option-name">{{ ds.name }}</span>
-                          <svg v-if="aturbSelectedDatasetId === ds.id" class="ds-option-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        </div>
-                        <div class="ds-option-meta">
-                          <span>{{ formatDate(ds.uploadedAt) }}</span>
-                          <span>{{ (ds.entryCount || 0).toLocaleString('pt-PT') }} entradas</span>
-                          <span>{{ formatBytes(ds.sizeBytes) }}</span>
-                          <span>por {{ ds.uploadedBy }}</span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
                 <!-- Search + buttons -->
                 <div class="search-inline-row" style="margin-bottom: 12px;">
                   <div class="field" style="flex: 1; min-width: 0;">
@@ -3089,12 +2837,12 @@ onBeforeUnmount(() => {
 
             <template v-else>
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
-                <span>Fonte: <strong>{{ aturbSelectedDataset?.name }}</strong></span>
+                <span>{{ aturbSelectedDataset?.name }}</span>
                 <span>{{ aturbTotalEntries.toLocaleString('pt-PT') }} resultado{{ aturbTotalEntries !== 1 ? 's' : '' }}</span>
                 <span v-if="aturbFilters.q.trim() && aturbOrdenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
                 <button v-else-if="aturbFilters.q.trim() && aturbSortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="aturbSortKeys = []; aturbPage = 1; loadAturbEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-                  <ExportarBotao url="/api/entries/export" :get-params="buildAturbEntriesQuery" :token="token" :disabled="aturbTotalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
+                  <ExportarBotao :url="`/api/colecoes/${aturbSelectedDatasetId}/exportar`" :get-params="buildAturbEntriesQuery" :token="token" :disabled="aturbTotalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                   <button v-if="canManageEntries" class="btn btn-primary btn-sm" type="button" @click="openCreateEntry(aturbSelectedDatasetId, 'aturb')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Adicionar entrada
@@ -3260,7 +3008,7 @@ onBeforeUnmount(() => {
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   Limpar lista
                 </button>
-                <ExportarBotao v-for="g in cartGroups" :key="g.datasetId" url="/api/entries/export" :get-params="() => cartExportParams(g)" :token="token" :rotulo="`Exportar ${g.nome} (${g.ids.length})`" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
+                <ExportarBotao v-for="g in cartGroups" :key="g.datasetId" :url="`/api/colecoes/${g.datasetId}/exportar`" :get-params="() => cartExportParams(g)" :token="token" :rotulo="`Exportar ${g.nome} (${g.ids.length})`" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                 <button class="btn btn-primary btn-sm" type="button" :disabled="cartCount === 0" @click="exportCartPDF()">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                   Imprimir PDF
@@ -3323,40 +3071,16 @@ onBeforeUnmount(() => {
               <h2 class="card-title">Lixo</h2>
               <p class="card-subtitle">Entradas eliminadas — podem ser restauradas</p>
             </div>
-            <div class="card-body" style="padding:16px;border-bottom:1px solid var(--border);">
-              <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                <div style="flex:1;min-width:200px;">
-                  <label class="field-label" style="margin-bottom:4px;display:block;">Dataset Cartografia</label>
-                  <select class="input" v-model="binDatasetId" @change="loadBin()">
-                    <option value="">— Selecionar —</option>
-                    <option v-for="ds in datasets.filter(d => d.type !== 'aturb')" :key="ds.id" :value="ds.id">{{ ds.name }}</option>
-                  </select>
-                </div>
-                <div style="flex:1;min-width:200px;">
-                  <label class="field-label" style="margin-bottom:4px;display:block;">Dataset ATURB</label>
-                  <select class="input" v-model="binAturbDatasetId" @change="loadAturbBin()">
-                    <option value="">— Selecionar —</option>
-                    <option v-for="ds in datasets.filter(d => d.type === 'aturb')" :key="ds.id" :value="ds.id">{{ ds.name }}</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
             <div v-if="binLoading" style="padding:32px;text-align:center;">
               <div class="spinner" style="margin:0 auto;"></div>
             </div>
-            <div v-else-if="binEntries.length === 0 && binAturbEntries.length === 0 && (binDatasetId || binAturbDatasetId)">
+            <div v-else-if="binEntries.length === 0 && binAturbEntries.length === 0">
               <div class="empty-state" style="padding:40px 0;">
                 <div class="empty-state-icon">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                 </div>
                 <h3>Lixo vazio</h3>
-                <p>Não há entradas eliminadas neste dataset.</p>
-              </div>
-            </div>
-            <div v-else-if="!binDatasetId && !binAturbDatasetId">
-              <div class="empty-state" style="padding:40px 0;">
-                <p>Selecione um dataset acima para ver as entradas eliminadas.</p>
+                <p>Não há entradas eliminadas.</p>
               </div>
             </div>
             <div v-else class="table-wrap" style="overflow-x:auto;">
@@ -3380,7 +3104,7 @@ onBeforeUnmount(() => {
                     <td style="font-size:13px;">{{ entry.deletedBy || '—' }}</td>
                     <td class="cell-nowrap" style="font-size:12px;">{{ entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('pt-PT') : '—' }}</td>
                     <td>
-                      <button class="btn btn-secondary btn-sm" type="button" @click="restoreFromBin(binDatasetId, 'cartografia', entry)">
+                      <button class="btn btn-secondary btn-sm" type="button" @click="restoreFromBin(entry)">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                         Restaurar
                       </button>
@@ -3395,7 +3119,7 @@ onBeforeUnmount(() => {
                     <td style="font-size:13px;">{{ entry.deletedBy || '—' }}</td>
                     <td class="cell-nowrap" style="font-size:12px;">{{ entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('pt-PT') : '—' }}</td>
                     <td>
-                      <button class="btn btn-secondary btn-sm" type="button" @click="restoreFromBin(binAturbDatasetId, 'aturb', entry)">
+                      <button class="btn btn-secondary btn-sm" type="button" @click="restoreFromBin(entry)">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                         Restaurar
                       </button>
@@ -3412,12 +3136,11 @@ onBeforeUnmount(() => {
           <div class="card">
             <div class="card-header">
               <h2 class="card-title">Histórico</h2>
-              <p class="card-subtitle">Registo de todas as alterações por dataset</p>
+              <p class="card-subtitle">Registo de todas as alterações por coleção</p>
             </div>
             <div class="card-body" style="padding:16px;border-bottom:1px solid var(--border);">
-              <label class="field-label" style="margin-bottom:4px;display:block;">Dataset</label>
+              <label class="field-label" style="margin-bottom:4px;display:block;">Coleção</label>
               <select class="input" style="max-width:340px;" v-model="historySelectedDatasetId" @change="loadHistory()">
-                <option value="">— Selecionar —</option>
                 <option v-for="ds in datasets" :key="ds.id" :value="ds.id">{{ ds.name }}</option>
               </select>
             </div>
@@ -3431,7 +3154,7 @@ onBeforeUnmount(() => {
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
                 <h3>Sem histórico</h3>
-                <p>Não há alterações registadas neste dataset.</p>
+                <p>Não há alterações registadas nesta coleção.</p>
               </div>
             </div>
             <div v-else-if="!historySelectedDatasetId">

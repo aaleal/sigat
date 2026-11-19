@@ -9,6 +9,7 @@ process.env.SIGAT_DATA_DIR = dataDir;
 process.env.JWT_SECRET = 'segredo-de-teste';
 
 const { app, ensureStorage } = require('../server');
+const documentos = require('../src/db/repos/documentos');
 
 const CABECALHOS_CARTOGRAFIA = [
   'Autor / Entidade Responsável', 'Título e Descrição do Documento', 'Local', 'Data',
@@ -40,6 +41,11 @@ function linhaCartografia(o = {}) {
 let server;
 let baseUrl;
 
+// Cria documentos diretamente na BD de teste (sem passar pela API).
+function semear(colecao, lista, utilizador = 'teste') {
+  return lista.map((dados) => documentos.criar(colecao, dados, utilizador, { validar: false }));
+}
+
 async function iniciar() {
   await ensureStorage();
   await new Promise((resolve) => {
@@ -53,6 +59,7 @@ async function iniciar() {
 
 async function parar() {
   if (server) await new Promise((r) => server.close(r));
+  require('../src/db').fecharBd();
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
@@ -85,5 +92,5 @@ function formComFicheiro(buffer, nome, extra = {}) {
 }
 
 module.exports = {
-  iniciar, parar, api, login, formComFicheiro, xlsxCartografia, linhaCartografia, CABECALHOS_CARTOGRAFIA,
+  iniciar, parar, api, login, formComFicheiro, semear, xlsxCartografia, linhaCartografia, CABECALHOS_CARTOGRAFIA, dataDir,
 };
