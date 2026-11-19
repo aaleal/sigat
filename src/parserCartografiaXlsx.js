@@ -95,16 +95,6 @@ function parseFisica(text) {
   return out;
 }
 
-// "Outras Descrições" junta notas e localização, separadas por " ; ".
-function splitOutras(text) {
-  const notas = [];
-  const localizacao = [];
-  for (const part of clean(text).split(/\s+;\s+/).filter(Boolean)) {
-    (/DMPGU|Incorpora[cç][aã]o/i.test(part) ? localizacao : notas).push(part);
-  }
-  return { notas: notas.join(' ; '), localizacao: localizacao.join(' ; ') };
-}
-
 function deriveCabecalho(autor, descricao) {
   if (autor && !/^s[\s./]*a\.?$/i.test(autor)) return autor;
   const title = descricao.split(/\s*(?:\[|\s:\s|\s\/\s|\.\s-\s)/)[0].trim();
@@ -170,7 +160,8 @@ function parseCartografiaXlsx(buffer) {
     const autor = cell(row, 'autor');
     const assuntos = cell(row, 'assuntos');
     const cota = cell(row, 'cota');
-    const { notas, localizacao } = splitOutras(cell(row, 'outras'));
+    const notas = cell(row, 'outras');
+    const localizacao = cell(row, 'local');
 
     if (!autor) warnings.push({ entry: rowNum, section: 'autor', message: `Linha ${rowNum}: Autor em falta.` });
     if (!cota) warnings.push({ entry: rowNum, section: 'cota', message: `Linha ${rowNum}: Cota em falta.` });

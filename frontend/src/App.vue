@@ -1612,7 +1612,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="entry-field">
               <span class="entry-field-label">Localização</span>
-              <span class="entry-field-value">{{ entryModal.entry?.cota || '—' }}</span>
+              <span class="entry-field-value">{{ entryModal.entry?.localizacao || '—' }}</span>
             </div>
             <div class="entry-field">
               <span class="entry-field-label">Notas</span>
@@ -2277,7 +2277,7 @@ onBeforeUnmount(() => {
                       <div class="field"><label class="field-label">Cabeçalho</label><input v-model="filters.cabecalho" list="suggest-cabecalho" placeholder="Cabeçalho" :disabled="!selectedDatasetId" /><datalist id="suggest-cabecalho"><option v-for="s in filterSuggestions.cabecalho" :key="s" :value="s" /></datalist></div>
                       <div class="field"><label class="field-label">Descrição</label><input v-model="filters.descricao" list="suggest-descricao" placeholder="Descrição" :disabled="!selectedDatasetId" /><datalist id="suggest-descricao"><option v-for="s in filterSuggestions.descricao" :key="s" :value="s" /></datalist></div>
                       <div class="field"><label class="field-label">Notas</label><input v-model="filters.notas" list="suggest-notas" placeholder="Notas" :disabled="!selectedDatasetId" /><datalist id="suggest-notas"><option v-for="s in filterSuggestions.notas" :key="s" :value="s" /></datalist></div>
-                      <div class="field"><label class="field-label">Localização</label><input v-model="filters.localizacao" list="suggest-localizacao" placeholder="DMPGU..." :disabled="!selectedDatasetId" /><datalist id="suggest-localizacao"><option v-for="s in filterSuggestions.localizacao" :key="s" :value="s" /></datalist></div>
+                      <div class="field"><label class="field-label">Localização</label><input v-model="filters.localizacao" list="suggest-localizacao" placeholder="Localização" :disabled="!selectedDatasetId" /><datalist id="suggest-localizacao"><option v-for="s in filterSuggestions.localizacao" :key="s" :value="s" /></datalist></div>
                       <div class="field"><label class="field-label">Assuntos</label><input v-model="filters.assuntos" list="suggest-assuntos" placeholder="Assuntos" :disabled="!selectedDatasetId" /><datalist id="suggest-assuntos"><option v-for="s in filterSuggestions.assuntos" :key="s" :value="s" /></datalist></div>
                       <div class="field"><label class="field-label">Cota</label><input v-model="filters.cota" list="suggest-cota" placeholder="Cota" :disabled="!selectedDatasetId" /><datalist id="suggest-cota"><option v-for="s in filterSuggestions.cota" :key="s" :value="s" /></datalist></div>
                       <div class="field"><label class="field-label">CDR</label><input v-model="filters.cdr" list="suggest-cdr" placeholder="CDR" :disabled="!selectedDatasetId" /><datalist id="suggest-cdr"><option v-for="s in filterSuggestions.cdr" :key="s" :value="s" /></datalist></div>
@@ -2421,7 +2421,7 @@ onBeforeUnmount(() => {
                       <td class="cell-nowrap"><span :title="entry.cota" style="font-size:12px">{{ displayNum(entry.cota) }}</span></td>
                       <td class="cell-nowrap"><span :title="entry.cdr" style="font-size:12px">{{ displayNum(entry.cdr) }}</span></td>
                       <td class="cell-nowrap"><span :title="entry.tb" style="font-size:12px">{{ displayNum(entry.tb) }}</span></td>
-                      <td><span class="cell-clamp cell-clamp-sm" :title="entry.cota" style="font-size:12px">{{ entry.cota || '—' }}</span></td>
+                      <td><span class="cell-clamp cell-clamp-sm" :title="entry.localizacao" style="font-size:12px">{{ entry.localizacao || '—' }}</span></td>
                       <td class="cell-nowrap"><strong>{{ entry.nrRegisto }}</strong></td>
                       <td class="cell-nowrap" @click.stop>
                         <template v-if="canEditEstado">
