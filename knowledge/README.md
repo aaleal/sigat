@@ -17,6 +17,7 @@ Idioma da UI, mensagens de erro da API e dados: **português (pt-PT)**. Manter.
 | [decisions.md](decisions.md) | Decisões de design e o porquê |
 | [limitations.md](limitations.md) | Limitações conhecidas, dívida técnica, riscos de segurança |
 | [human_report.md](human_report.md) | Relatório para o negócio (utilizadores finais) |
+| [plano-melhorias.md](plano-melhorias.md) | Plano de implementação: exportação, empréstimos, painel, importação incremental, pesquisa, migração para SQLite |
 
 ## Resumo em 10 linhas
 1. Backend: `server.js` (Node 20 + Express 5), único ficheiro; API REST em `/api/*`, serve também o frontend estático de `public/`.

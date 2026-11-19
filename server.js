@@ -13,9 +13,16 @@ const { parseCartografiaXlsx, attachNrRegisto } = require('./src/parserCartograf
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'sigat-dev-secret-change-me';
+const DEFAULT_JWT_SECRET = 'sigat-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 
-const DATA_DIR = path.join(__dirname, 'data');
+if (process.env.NODE_ENV === 'production' && JWT_SECRET === DEFAULT_JWT_SECRET) {
+  // eslint-disable-next-line no-console
+  console.error('JWT_SECRET não definido (ou igual ao valor por omissão). Defina um segredo próprio em produção.');
+  process.exit(1);
+}
+
+const DATA_DIR = process.env.SIGAT_DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const DATASETS_FILE = path.join(DATA_DIR, 'datasets.json');
 const DATASET_CONTENT_DIR = path.join(DATA_DIR, 'datasets');
@@ -427,7 +434,7 @@ app.post('/api/datasets/upload-aturb', authMiddleware, requireRole('admin', 'wri
   });
 });
 
-app.post('/api/datasets/:id/activate', authMiddleware, async (req, res) => {
+app.post('/api/datasets/:id/activate', authMiddleware, requireRole('admin', 'write'), async (req, res) => {
   const { id } = req.params;
   const registry = await readJson(DATASETS_FILE, { activeDatasetId: null, datasets: [] });
   const exists = registry.datasets.some((entry) => entry.id === id);
@@ -973,15 +980,19 @@ app.use((_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-ensureStorage()
-  .then(() => {
-    app.listen(PORT, () => {
+module.exports = { app, ensureStorage };
+
+if (require.main === module) {
+  ensureStorage()
+    .then(() => {
+      app.listen(PORT, () => {
+        // eslint-disable-next-line no-console
+        console.log(`SIGAT server a correr em http://localhost:${PORT}`);
+      });
+    })
+    .catch((error) => {
       // eslint-disable-next-line no-console
-      console.log(`SIGAT server a correr em http://localhost:${PORT}`);
+      console.error('Erro ao iniciar SIGAT:', error);
+      process.exit(1);
     });
-  })
-  .catch((error) => {
-    // eslint-disable-next-line no-console
-    console.error('Erro ao iniciar SIGAT:', error);
-    process.exit(1);
-  });
+}
