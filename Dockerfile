@@ -5,7 +5,7 @@ WORKDIR /app
 # better-sqlite3 pode precisar de compilar (sem binário pré-compilado para musl)
 RUN apk add --no-cache python3 make g++
 
-COPY package*.json ./
+COPY package*.json .npmrc ./
 RUN npm ci --omit=dev
 
 FROM node:22-alpine
