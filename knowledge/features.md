@@ -3,20 +3,20 @@
 ## Perfis (roles)
 | Role | Pode |
 |---|---|
-| `read` | Login, pesquisar/consultar Cartografia e ATURB, ver detalhe, exportar PDF, ver erros de importação do dataset (via API) |
-| `write` | + criar/editar/eliminar entradas, alterar estado, lixo/restauro, histórico, apagar/renomear/carregar datasets (API) |
-| `admin` | + gestão de contas (criar, apagar, repor password), menu "Fontes de Dados" |
+| `read` | Login, pesquisar/consultar Cartografia e ATURB, ver detalhe, exportar (Excel/CSV/PDF), ver Painel e Empréstimos |
+| `write` | + criar/editar/eliminar entradas, alterar estado, registar empréstimos/devoluções, lixo/restauro, histórico |
+| `admin` | + importações de Excel, gestão de contas (criar, apagar, repor password) |
 
-A UI só mostra "Fontes de Dados" e "Gestão de Contas" a `admin` (`canAccessSources`, `isAdmin`), mas a API deixa `write` carregar/renomear/apagar datasets (ver [limitations.md](limitations.md)). `canManageEntries`/`canEditEstado` = `write` ou `admin`.
+A API aplica as mesmas regras (importações e contas só `admin`; escrita `admin`/`write`; lixo e histórico `admin`/`write`). `canManageEntries`/`canEditEstado` = `write` ou `admin`.
 
 ## Menu (sidebar, colapsável)
-Menu: **Cartografia**, **ATURB**, Fontes de Dados (admin), Gestão de Contas (admin). Ferramentas: **Impressão PDF** (com contador), Lixo (write/admin), Histórico (write/admin).
+Menu: **Painel** (página inicial), **Cartografia**, **ATURB**, Importações (admin), **Empréstimos** (badge de atrasos), Gestão de Contas (admin). Ferramentas: **Impressão PDF** (com contador), Lixo (write/admin), Histórico (write/admin). No rodapé: Alterar password e Terminar sessão.
 
 ## Cartografia (pesquisa)
-- Selecionar fonte de dados (obrigatório antes de pesquisar).
+- Coleção fixa (sem seletor de fonte).
 - Pesquisa livre `q` (tolerante a acentos/maiúsculas, palavras parciais, ordenada por relevância; aspas e `-termo`) + filtros avançados por campo: cabeçalho, descrição, notas, localização, assuntos, cota, CDR, TB, nº registo, autor, ano, tipo, cor, dimensão, estado.
 - Filtros **numéricos** (cota, CDR, TB, nº registo): comparam por número exato extraído (ex.: "12" não casa "123"); sem dígitos no filtro → substring.
-- Sugestões (datalist) e listas distintas via `/api/entries/distinct`.
+- Sugestões (datalist) e listas distintas via `/api/colecoes/:colecao/documentos/distinct`.
 - Ordenação multi-coluna (shift/click; badges de ordem). `cota`, `cdr`, `tb` ordenam pelo 1.º número extraído; `nrRegisto` como número; resto `localeCompare('pt-PT', {numeric:true})`.
 - Paginação (pageSize 1–100, default 25).
 - Tabela: cabeçalho, descrição, assuntos, cota, CDR, TB, localização, nº registo, estado (editável por write/admin), ações. Modal de detalhe com todos os campos.
@@ -36,9 +36,9 @@ Estados: `Arquivo`, `Em Consulta`, `Empréstimo` e `-` (sem estado, mostrado com
 - Pesquisa: parâmetro `emprestimo=ativo|atraso` na API.
 
 ## Gestão de entradas (write/admin)
-- Criar/editar via modal. Obrigatórios — Cartografia: cabeçalho, descrição, cota, autor. ATURB: título, autor, local, data, caixa nº. A validação é **só no frontend**.
-- Eliminar → Lixo (restaurável). Lixo e Histórico por dataset/tipo.
-- Campos vazios são omitidos ao gravar (um campo apagado no formulário **não** apaga o valor antigo no PUT — ver limitações).
+- Criar/editar via modal. Obrigatórios — Cartografia: cabeçalho, descrição, cota, autor. ATURB: título, autor, local, data, caixa nº. Validados também no servidor (campos `obrigatorio`); ao editar só se recusa esvaziar um obrigatório já preenchido.
+- Eliminar → Lixo (restaurável; não se elimina um documento emprestado). Lixo e Histórico por coleção.
+- Um campo apagado no formulário limpa o valor (`''`); o histórico guarda só o diff por campo.
 
 ## Importações (admin)
 Menu **Importações**: atualiza uma coleção (Cartografia ou ATURB) a partir de um `.xlsx` sem criar "fontes" novas.

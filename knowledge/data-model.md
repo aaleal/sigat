@@ -25,34 +25,27 @@ A Autor / Entidade Responsável · B Título e Descrição do Documento · **C L
 | `notas` | Outras Descrições (texto integral) |
 | `assuntos` | Palavras-chave / Assuntos |
 | `tb`, `cota`, `cdr` | TB, Cota, CDR |
-| `nrRegisto` | coluna "Nº Registo" se existir; senão reaproveitado (ver abaixo) |
+| `nrRegisto` | coluna "Nº Registo" se existir (o ficheiro exportado pelo SIGAT inclui-a); senão fica vazio e a correspondência usa cota+descrição |
 | `cabecalho` | derivado: `autor` (exceto "S.A."/vazio) senão título em maiúsculas extraído de `descricao` |
-| `estado`, `estadoMeta` | coluna Empréstimo = `sim`/`s` → `Empréstimo` + `{dataSaida, requisitante, registadoPor:'importação'}`; senão `-` |
-| `sourceEntryNumber` | sequencial (1..n) por dataset; **identificador da entrada** em todas as rotas |
+| `estado`, empréstimo | coluna Empréstimo = `sim`/`s` (+ Data de Saída, Requisitante) → proposta de empréstimo `origem=importacao`; o estado é gerido no SIGAT |
+| `numero` (= `sourceEntryNumber` na API) | "ID SIGAT", por coleção, monotónico; as mutações usam o `id` (UUID) |
 
-Não importadas: TB 2, MP, CDR 2, Data de Entrada, Restauro.
+Colunas sem campo (TB 2, MP, CDR 2, Restauro…) propostas como **campos novos** no assistente (ou ignoradas).
 
-> **Localização (decisão 2026-11):** a Localização passou a vir da coluna "Local" (C). Antes era extraída de "Outras Descrições" (só trechos com `DMPGU`/`Incorporação`), o que perdia resultados. Esses textos ficam agora em `notas`. Bug relacionado corrigido: o modal e a coluna da tabela "Localização" mostravam `cota`.
+> **Localização (decisão 2026-11):** a Localização vem da coluna "Local" (C). As restantes "Outras Descrições" ficam em `notas`.
 
-### Avisos e erros do parse
-- Erro (linha ignorada): sem Título/Descrição.
-- Avisos: sem autor, sem cota, sem assuntos, assuntos que parecem cota/CDU (`looksLikeShelfmark`), título só numérico, linha duplicada.
-- Upload só falha (400) se houver erros **e** zero entradas. Caso contrário devolve 201 com `errors`/`warnings`, que ficam em `parseErrors`/`parseWarnings` e são consultáveis em Fontes de Dados.
+### Avisos e erros da importação
+Erro (linha ignorada): campo obrigatório de descrição/título em falta. Duplicados no ficheiro, ambíguos e ausentes são categorias da pré-visualização (ver [features.md](features.md)); a qualidade dos dados (sem cota, sem autor…) é vista no Painel.
 
 ### Nº de Registo (`nrRegisto`)
-O xlsx atual **não tem** esta coluna. Quando falta, `attachNrRegisto` copia-o do dataset de cartografia mais recente com entradas (referência), casando por **descrição normalizada + cota normalizada** (remove "Cota:", "CMLEO", espaços); fallback só por descrição; fallback só por cota se único. Cada entrada de referência é usada uma só vez. Entradas sem correspondência geram aviso "Sem Nº de Registo". Se não houver dataset de referência, ficam sem nº.
-
-### Parser TXT legado (`src/parser.js`)
-Blocos separados por linha em branco: linha 1 cabeçalho, linha 2 descrição, `Cota:`, CDR, TB, localização (`DMPGU|Incorporação`), assuntos (linha com `/`), notas (resto), nº registo (≥4 dígitos no fim). `parseDescricao` extrai autor/ano/tipo/cor/dimensão da descrição ISBD. Ainda aceite por `POST /api/datasets/upload` (`.txt`) mas a UI não o oferece.
+Usado como 2.º critério de correspondência ([src/import/corresponder.js](../src/import/corresponder.js)): ID SIGAT → `nrRegisto` → cota+descrição normalizadas (remove "Cota:", "CMLEO", espaços) → descrição única → cota única. Cada documento só casa com uma linha.
 
 ## ATURB (Arquivo Técnico de Urbanismo)
-Parser: [src/parserXlsx.js](../src/parserXlsx.js). Folha `PDF Site` (ou a primeira). Layout **posicional**: linha 1 vazia, 2 título, 3 cabeçalhos, dados a partir da linha 4.
-Colunas: A `autor`, B `titulo`, C `local`, D `data`, E `caixaNr`, F `estado` (default `-`). Aviso se `titulo` vazio. Ficheiro de origem de referência: `bdarquivotecnico.xlsx` (tem muitas outras folhas/colunas que **não** são importadas).
+Folha `PDF Site` (ou a primeira com cabeçalhos reconhecidos); agora também **por nome de cabeçalho**. Campos: `autor`, `titulo`, `local`, `data`, `caixaNr` (cabeçalho "Caixa nº" normaliza para `caixano`); a coluna Estado do ficheiro é ignorada. Outras colunas/folhas de `bdarquivotecnico.xlsx` podem ser importadas como campos novos.
 
-## Campos comuns adicionados pela app
-`estado` (`-`, `Arquivo`, `Em Consulta`, `Empréstimo`), `estadoMeta` (`{dataSaida, registadoPor}` para empréstimo), `estadoChangedAt/By`, `createdAt/By`, `updatedAt/By`, `deletedAt/By`, `restoredAt/By`.
+## Campos de sistema do documento
+`estado` (`-`, `Arquivo`, `Em Consulta`, `Empréstimo`), `estadoMeta` (empréstimo ativo), `estadoChangedAt/By`, `createdAt/By`, `updatedAt/By`, `deletedAt/By`.
 
 ## Histórico, lixo
-- `history[]` por dataset: `{ id, action: create|edit|delete|restore|estado, timestamp, user, entryRef:{sourceEntryNumber, cabecalho|titulo}, details }`. `edit` guarda `prev` e `next` completos; `estado` guarda `prevEstado/newEstado/estadoMeta`. Devolvido do mais recente para o mais antigo.
-- Eliminar = soft-delete para `deletedEntries[]`; restaurar devolve-a a `entries`. Não há eliminação definitiva de entradas.
-- Apagar um dataset remove também o ficheiro (incluindo lixo e histórico).
+- Tabela `historico`: ações `criar|editar|eliminar|restaurar|estado|emprestimo|devolucao|prolongar|importar|exportar` (a API devolve `create|edit|delete|restore|estado|export` em inglês para as primeiras e as restantes tal qual). `editar` guarda só `alteracoes:{campo:{de,para}}`. Mais recente primeiro.
+- Eliminar = soft-delete (`eliminado_em`); restaurar limpa-o. Não há eliminação definitiva.

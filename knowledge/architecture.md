@@ -7,14 +7,13 @@
 
 ## Estrutura
 ```
-server.js                 API + estáticos + bootstrap do armazenamento
-src/parserCartografiaXlsx.js  Parser xlsx Cartografia (folha BD) — será generalizado na Fase 4
-src/parserXlsx.js         Parser xlsx ATURB (folha "PDF Site")
-src/parser.js             Parser TXT legado (sem uso desde a Fase 2)
-frontend/                 Fonte Vue (index.html, vite.config.js, src/App.vue, main.js, style.css, components/, api.js)
+server.js                 bootstrap Express (monta src/routes/*, serve public/)
+src/                      auth, routes/, db/, import/, search, query, export, campos (ver "Estrutura de código" abaixo)
+scripts/                  migrar-json-para-sqlite.js
+test/                     testes node:test
+frontend/                 Fonte Vue (index.html, vite.config.js, src/App.vue, main.js, style.css, components/, api.js, format.js)
 public/                   Build do frontend (versionado) servido por express.static
-data/                     sigat.db (gitignored)
-Mapa.txt                  Fonte TXT antiga da cartografia (referência/histórico)
+data/                     sigat.db e importacoes/ temporárias (gitignored)
 Dockerfile, docker-compose.yml
 ```
 Na raiz podem existir ficheiros xlsx de trabalho (`Cartografia GEO - BD.xlsx`, `bdarquivotecnico.xlsx`, `relatorio_problemas_BD.xlsx`) e `sigat.7z`: são material de trabalho, não código.
