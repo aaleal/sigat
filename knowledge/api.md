@@ -38,6 +38,14 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 | PATCH | `/emprestimos/:id` | admin,write | prolongar/corrigir (`dataPrevista`, `requisitante`, `entidade`, `contacto`, `observacoes`); só emprestimos ativos |
 | DELETE | `/documentos/:id` | admin,write | soft-delete; 409 se emprestado |
 | POST | `/documentos/:id/restaurar` | admin,write | |
+| POST | `/colecoes/:colecao/importacoes` | admin | multipart `file` (.xlsx); guarda o ficheiro em `data/importacoes/` e devolve `{importacao, folha, totalLinhas, cabecalhos[{indice,rotulo,amostra}], mapeamento (proposta), campos}`; cancela pré-visualizações pendentes |
+| PUT | `/importacoes/:id/mapeamento` | admin | `{mapeamento:{indiceColuna:{destino, campo?, rotulo?}}}` → compara e devolve `{importacao, resumo}`; destinos: `campo`, `novo`, `idSigat`, `fisica`, `emp_flag`, `emp_saida`, `emp_entrada`, `emp_requisitante`, `ignorar` |
+| GET | `/importacoes`, `/importacoes/:id` | admin | histórico; detalhe + contagens por ação |
+| GET | `/importacoes/:id/itens` | admin | `acao=novo|alterado|conflito|igual|ambiguo|duplicado_ficheiro|erro|ausente`, `page`, `pageSize` |
+| PATCH | `/importacoes/:id/itens/:linha` | admin | decisão: `{escolhas:{campo:'sigat'|'ficheiro'}}`, `{ignorar}`, `{criar}`, `{ignorarEmprestimo}`; em ambíguos `{documentoId}` ou `{criar:true}` |
+| POST | `/importacoes/:id/decisoes` | admin | `{escolha:'sigat'|'ficheiro', ambito:'conflitos'}` |
+| POST | `/importacoes/:id/aplicar` | admin | transação única; 409 se houver ambíguos por resolver ou documentos alterados entretanto |
+| DELETE | `/importacoes/:id` | admin | cancela |
 
 ## `GET /colecoes/:colecao/documentos`
 Query: `page`, `pageSize` (máx 100), `q`, `sortKeys` (ex.: `cota:asc,autor:desc`), `vazios` (ex.: `cota,autor` → só documentos com esses campos vazios), `ids` (lista de `numero`), filtros por campo (qualquer chave da definição de campos; numéricos = número exato: `cota, cdr, tb, nrRegisto, caixaNr`; restantes: substring sem acentos/maiúsculas).

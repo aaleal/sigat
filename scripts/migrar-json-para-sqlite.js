@@ -15,21 +15,13 @@ const campos = require('../src/db/repos/campos');
 const documentosRepo = require('../src/db/repos/documentos');
 const utilizadores = require('../src/db/repos/utilizadores');
 const { corresponder } = require('../src/import/corresponder');
+const { paraIso } = require('../src/import/transformar');
 
 const CANONICO_PADRAO = { cartografia: 'Cartografia GEO - BD', aturb: 'arquivo2026' };
 const IGNORAR_EDICAO = new Set(['sourceEntryNumber', 'updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'estado', 'estadoMeta',
   'estadoChangedAt', 'estadoChangedBy', 'deletedAt', 'deletedBy', 'restoredAt', 'restoredBy']);
 
 const lerJson = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf-8')); } catch { return fallback; } };
-
-function paraIso(valor) {
-  const s = String(valor ?? '').trim();
-  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return '';
-}
 
 const temTrabalho = (p) => (p.history || []).length > 0
   || (p.entries || []).some((e) => e.updatedAt || e.createdAt || e.estadoChangedAt);

@@ -23,7 +23,7 @@ const CAMPOS = {
     { chave: 'titulo', rotulo: 'Título', peso: 3, obrigatorio: true, visivelTabela: true, aliases: ['titulo'] },
     { chave: 'local', rotulo: 'Local', peso: 1.5, obrigatorio: true, visivelTabela: true, aliases: ['local'] },
     { chave: 'data', rotulo: 'Data', peso: 1, obrigatorio: true, visivelTabela: true, aliases: ['data'] },
-    { chave: 'caixaNr', rotulo: 'Caixa nº', peso: 3, numerico: true, obrigatorio: true, visivelTabela: true, aliases: ['caixanr', 'caixa'] },
+    { chave: 'caixaNr', rotulo: 'Caixa nº', peso: 3, numerico: true, obrigatorio: true, visivelTabela: true, aliases: ['caixanr', 'caixano', 'caixa'] },
     { chave: 'estado', rotulo: 'Estado', peso: 1, sistema: true, visivelTabela: true },
   ],
 };

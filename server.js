@@ -12,6 +12,7 @@ const utilizadores = require('./src/db/repos/utilizadores');
 const usersRouter = require('./src/routes/users');
 const documentosRouter = require('./src/routes/documentos');
 const emprestimosRouter = require('./src/routes/emprestimos');
+const importacoesRouter = require('./src/routes/importacoes');
 const { authMiddleware } = require('./src/auth');
 
 const app = express();
@@ -26,6 +27,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', usersRouter);
 app.use('/api', authMiddleware, documentosRouter);
 app.use('/api', authMiddleware, emprestimosRouter);
+app.use('/api', authMiddleware, importacoesRouter);
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ message: 'Endpoint não encontrado.' });

@@ -1,12 +1,14 @@
 # Modelo de dados e importação
 
-## Tipos de dataset
-`type` em `datasets.json`: `cartografia` (default quando em falta) ou `aturb`. Apenas um tipo `cartografia` pode ser "ativo" (`activeDatasetId`); o ATURB é escolhido na UI e não passa a ativo no upload.
+> **Desde a Fase 2** os dados vivem em SQLite (ver [architecture.md](architecture.md)): uma coleção por tipo (`cartografia`, `aturb`), sem "fontes de dados" múltiplas. Os campos de cada coleção estão na tabela `campos` (semente em [src/campos.js](../src/campos.js)) e podem crescer via importação. Um documento = linha em `documentos` com os campos em JSON (`dados`), `estado`, `numero` (ID SIGAT) e `dados_importados` (valores da última importação aplicada, base da fusão a 3 vias). O mapeamento xlsx → campo abaixo continua válido como proposta automática ([src/import/ler.js](../src/import/ler.js), [src/import/transformar.js](../src/import/transformar.js)). As partes sobre "datasets", parsers antigos e `attachNrRegisto` são históricas.
+
+## Coleções
+`cartografia` e `aturb`. Tudo o que for "dataset" abaixo refere o modelo antigo (JSON), migrado por `scripts/migrar-json-para-sqlite.js`.
 
 ## Cartografia
 
 ### Origem: xlsx, folha `BD`
-Parser: [src/parserCartografiaXlsx.js](../src/parserCartografiaXlsx.js). As colunas são **identificadas pelo nome do cabeçalho** (normalizado: sem acentos, minúsculas, só alfanuméricos), não pela posição. Procura o cabeçalho nas primeiras 10 linhas da folha `BD` (ou outras, se não existir); exige a coluna "Título e Descrição do Documento".
+Leitura: [src/import/ler.js](../src/import/ler.js). As colunas são **identificadas pelo nome do cabeçalho** (normalizado: sem acentos, minúsculas, só alfanuméricos; ex.: "Caixa nº" → `caixano`), não pela posição. Procura o cabeçalho nas primeiras 12 linhas da folha `BD` (Cartografia) ou `PDF Site` (ATURB), ou nas outras folhas.
 
 Cabeçalhos do ficheiro real (`Cartografia GEO - BD.xlsx`, folha BD), por ordem:
 A Autor / Entidade Responsável · B Título e Descrição do Documento · **C Local** · D Data · E Outras Informações Físicas · F Outras Descrições · G Palavras-chave / Assuntos · H TB · I TB 2 · J Cota · K MP · L CDR · M CDR 2 · N Empréstimo · O Data de Saída · P Data de Entrada · Q Requisitante · R Restauro.

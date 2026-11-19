@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ExportarBotao from './components/ExportarBotao.vue';
 import EstadoControlo from './components/EstadoControlo.vue';
 import Emprestimos from './components/Emprestimos.vue';
+import Importacoes from './components/Importacoes.vue';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -48,11 +49,6 @@ const loginForm = reactive({
   password: '',
 });
 
-const uploadForm = reactive({
-  name: '',
-  file: null,
-});
-
 const newUser = reactive({
   username: '',
   password: '',
@@ -61,14 +57,11 @@ const newUser = reactive({
 
 const showAdvancedFilters = ref(false);
 const entriesLoading = ref(false);
-const uploadLoading = ref(false);
 const loginLoading = ref(false);
 const userLoading = ref(false);
-const datasetDropdownOpen = ref(false);
 const sortKeys = ref([]);
 const ordenacao = ref('campos');
 const aturbOrdenacao = ref('campos');
-const isDragOver = ref(false);
 
 // ── UI state ─────────────────────────────────────────────────────────────
 const sidebarCollapsed = ref(false);
@@ -135,6 +128,16 @@ function iniciarAlertas() {
   resumoTimer = setInterval(carregarResumoEmprestimos, 5 * 60 * 1000);
 }
 
+// Depois de aplicar uma importação: atualizar totais, listas e alertas.
+async function onImportacaoAplicada() {
+  await loadDatasets();
+  await loadEntries();
+  await loadDistinctOptions();
+  await loadAturbEntries();
+  await loadAturbDistinctOptions();
+  await carregarResumoEmprestimos();
+}
+
 // Abre o detalhe de um documento (usado a partir da lista de empréstimos).
 async function abrirDocumento(doc) {
   try {
@@ -146,9 +149,6 @@ async function abrirDocumento(doc) {
   }
 }
 
-const uploadParseErrors = ref([]);
-const uploadParseWarnings = ref([]);
-const errorsModal = reactive({ open: false, dataset: null, errors: [], warnings: [] });
 const entryModal = reactive({ open: false, entry: null });
 
 // ── ATURB state ───────────────────────────────────────────────────────────
@@ -157,13 +157,8 @@ const aturbEntries = ref([]);
 const aturbTotalEntries = ref(0);
 const aturbPage = ref(1);
 const aturbEntriesLoading = ref(false);
-const aturbDatasetDropdownOpen = ref(false);
 const aturbSortKeys = ref([]);
 const aturbShowAdvancedFilters = ref(false);
-const aturbUploadLoading = ref(false);
-const aturbUploadParseErrors = ref([]);
-const aturbUploadParseWarnings = ref([]);
-const aturbIsDragOver = ref(false);
 
 const aturbFilters = reactive({
   q: '',
@@ -176,11 +171,6 @@ const aturbFilters = reactive({
 });
 
 const aturbDistinctOptions = ref({ autor: [], local: [], data: [], caixaNr: [] });
-
-const aturbUploadForm = reactive({
-  name: '',
-  file: null,
-});
 
 const aturbEntryModal = reactive({ open: false, entry: null });
 
@@ -368,7 +358,7 @@ const EXTRACT_NUM_SORT_KEYS = new Set(['cdr', 'tb', 'cota']);
 const sortedEntries = computed(() => entries.value);
 
 const activePageTitle = computed(() => {
-  if (currentPage.value === 'sources') return 'Fontes de Dados';
+  if (currentPage.value === 'sources') return 'Importações';
   if (currentPage.value === 'accounts') return 'Gestão de Contas';
   if (currentPage.value === 'aturb') return 'Arquivo Técnico de Urbanismo (ATURB)';
   if (currentPage.value === 'emprestimos') return 'Empréstimos';
@@ -453,27 +443,6 @@ function setSort(key, event) {
   }
   page.value = 1;
   loadEntries();
-}
-
-function selectDataset(id) {
-  selectedDatasetId.value = id;
-  datasetDropdownOpen.value = false;
-  onDatasetChange();
-}
-
-function onFileDrop(e) {
-  isDragOver.value = false;
-  const file = e.dataTransfer?.files?.[0];
-  if (!file) return;
-  if (!/\.(xlsx|xls)$/i.test(file.name)) {
-    addToast('Apenas ficheiros .xlsx são aceites.', 'error');
-    return;
-  }
-  uploadForm.file = file;
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  const inp = document.getElementById('datasetFile');
-  if (inp) inp.files = dt.files;
 }
 
 function clearSearchFilters() {
@@ -692,15 +661,6 @@ async function clearSearch() {
   await loadEntries();
 }
 
-async function onDatasetChange() {
-  clearSearchFilters();
-  showAdvancedFilters.value = false;
-  sortKeys.value = [];
-  page.value = 1;
-  await loadEntries();
-  await loadDistinctOptions();
-}
-
 async function goPrevPage() {
   if (page.value <= 1 || !selectedDatasetId.value) return;
   page.value -= 1;
@@ -845,21 +805,6 @@ async function loadAturbDistinctOptions() {
   const opts = {};
   for (const { field, suggestions } of results) opts[field] = suggestions;
   aturbDistinctOptions.value = opts;
-}
-
-function selectAturbDataset(id) {
-  aturbSelectedDatasetId.value = id;
-  aturbDatasetDropdownOpen.value = false;
-  onAturbDatasetChange();
-}
-
-async function onAturbDatasetChange() {
-  clearAturbFilters();
-  aturbShowAdvancedFilters.value = false;
-  aturbSortKeys.value = [];
-  aturbPage.value = 1;
-  await loadAturbEntries();
-  await loadAturbDistinctOptions();
 }
 
 async function searchAturbEntries() {
@@ -1334,12 +1279,6 @@ watch(pageSize, () => {
 });
 
 onMounted(async () => {
-  document.addEventListener('click', (e) => {
-    const picker = document.getElementById('ds-picker-root');
-    if (picker && !picker.contains(e.target)) datasetDropdownOpen.value = false;
-    const aturbPicker = document.getElementById('aturb-ds-picker-root');
-    if (aturbPicker && !aturbPicker.contains(e.target)) aturbDatasetDropdownOpen.value = false;
-  });
   if (!token.value) return;
   try { await bootstrap(); } catch { logout(); }
 });
@@ -1408,48 +1347,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <!-- ── Parse Errors Modal ─────────────────────────────────────────── -->
-    <div v-if="errorsModal.open" class="modal-backdrop" @click.self="errorsModal.open = false" role="dialog" aria-modal="true">
-      <div class="modal-box" style="max-width:720px;width:95vw">
-        <div class="modal-header">
-          <div class="modal-danger-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          </div>
-          <div class="modal-header-info">
-            <h2 class="modal-title">Erros de extração — {{ errorsModal.dataset?.name }}</h2>
-            <p class="modal-message">{{ errorsModal.errors.length }} erro(s) · {{ errorsModal.warnings.length }} aviso(s)</p>
-          </div>
-          <button class="btn btn-ghost btn-icon" @click="errorsModal.open = false" aria-label="Fechar">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body" style="max-height:55vh;overflow-y:auto;padding:0">
-          <div v-if="errorsModal.errors.length > 0" style="padding:12px 16px">
-            <p style="font-weight:600;font-size:13px;margin:0 0 8px;color:var(--danger)">Erros</p>
-            <div class="parse-errors-list">
-              <div v-for="(err, i) in errorsModal.errors" :key="i" class="parse-error-item">
-                <span class="parse-error-entry">Entrada {{ err.entry }}</span>
-                <span class="parse-error-section">[{{ err.section }}]</span>
-                <span class="parse-error-msg">{{ err.message }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="errorsModal.warnings.length > 0" style="padding:12px 16px;border-top:1px solid var(--border)">
-            <p style="font-weight:600;font-size:13px;margin:0 0 8px;color:var(--warning)">Avisos</p>
-            <div class="parse-errors-list">
-              <div v-for="(w, i) in errorsModal.warnings" :key="i" class="parse-error-item parse-error-item--warn">
-                <span class="parse-error-entry">Entrada {{ w.entry }}</span>
-                <span class="parse-error-section">[{{ w.section }}]</span>
-                <span class="parse-error-msg">{{ w.message }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-primary" @click="errorsModal.open = false">Fechar</button>
-        </div>
-      </div>
-    </div>
+    <!-- ── Detalhe das entradas ─────────────────────────────────────────── -->
+    <!-- ── Modais de detalhe ─────────────────────────────────────────── -->
     <!-- ── Entry Detail Modal ─────────────────────────────────────────── -->
     <div v-if="entryModal.open" class="modal-backdrop" @click.self="entryModal.open = false" role="dialog" aria-modal="true">
       <div class="modal-box entry-detail-box" style="max-width:900px;width:96vw">
@@ -1827,12 +1726,12 @@ onBeforeUnmount(() => {
           type="button"
           :class="['nav-btn', { active: currentPage === 'sources', 'nav-btn-collapsed': sidebarCollapsed }]"
           @click="switchPage('sources')"
-          :title="sidebarCollapsed ? 'Fontes de Dados' : ''"
+          :title="sidebarCollapsed ? 'Importações' : ''"
         >
           <span class="nav-btn-icon">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
           </span>
-          <span v-if="!sidebarCollapsed">Fontes de Dados</span>
+          <span v-if="!sidebarCollapsed">Importações</span>
         </button>
 
         <button
@@ -1934,9 +1833,6 @@ onBeforeUnmount(() => {
         </span>
         <span v-else-if="currentPage === 'aturb' && aturbSelectedDataset" class="topbar-meta">
           {{ aturbSelectedDataset.name }} · {{ aturbTotalEntries.toLocaleString('pt-PT') }} resultados
-        </span>
-        <span v-else-if="currentPage === 'sources'" class="topbar-meta">
-          {{ datasets.length }} fonte{{ datasets.length !== 1 ? 's' : '' }} disponível{{ datasets.length !== 1 ? 'is' : '' }}
         </span>
         <span v-else-if="currentPage === 'accounts'" class="topbar-meta">
           {{ users.length }} utilizador{{ users.length !== 1 ? 'es' : '' }}
@@ -2226,290 +2122,7 @@ onBeforeUnmount(() => {
 
         <!-- ── Sources page (temporário até à Fase 4: importação incremental) ── -->
         <section v-if="currentPage === 'sources'">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <p class="card-title">Importações</p>
-                <p class="card-subtitle">A atualização a partir de Excel está a ser reformulada (comparação, pré-visualização e preservação de estados e edições).</p>
-              </div>
-            </div>
-          </div>
-        </section>
-        <section v-if="false">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; align-items: start;">
-          <!-- Cartografia Upload card -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-header-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-              </div>
-              <div>
-                <p class="card-title">Carregar fonte — Cartografia</p>
-                <p class="card-subtitle">Ficheiro .xlsx (folha BD) com os campos cartográficos por entrada</p>
-              </div>
-            </div>
-            <div class="card-body">
-              <form @submit.prevent="uploadDataset">
-                <div class="field" style="margin-bottom: 14px;">
-                  <label class="field-label" for="dataset-name">Nome da fonte</label>
-                  <input id="dataset-name" v-model="uploadForm.name" placeholder="Ex: Cartografia Lisboa 2024" />
-                </div>
-
-                <!-- Drag-and-drop zone -->
-                <div
-                  class="dropzone"
-                  :class="{ 'dropzone-over': isDragOver, 'dropzone-filled': uploadForm.file }"
-                  @dragover.prevent="isDragOver = true"
-                  @dragleave.prevent="isDragOver = false"
-                  @drop.prevent="onFileDrop"
-                  @click="$refs.fileInputRef.click()"
-                  role="button"
-                  tabindex="0"
-                  aria-label="Clique ou arraste um ficheiro xlsx"
-                  @keydown.enter="$refs.fileInputRef.click()"
-                  @keydown.space.prevent="$refs.fileInputRef.click()"
-                  style="margin-bottom: 16px;"
-                >
-                  <input
-                    id="datasetFile"
-                    ref="fileInputRef"
-                    type="file"
-                    accept=".xlsx,.xls"
-                    required
-                    style="display:none"
-                    @change="onUploadFileChange"
-                  />
-
-                  <template v-if="uploadForm.file">
-                    <div class="dropzone-file-icon">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    </div>
-                    <p class="dropzone-filename">{{ uploadForm.file.name }}</p>
-                    <p class="dropzone-size">{{ formatBytes(uploadForm.file.size) }}</p>
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      type="button"
-                      style="margin-top: 4px;"
-                      @click.stop="uploadForm.file = null"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      Remover ficheiro
-                    </button>
-                  </template>
-
-                  <template v-else>
-                    <div class="dropzone-icon" :class="{ pulsing: isDragOver }">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                    </div>
-                    <p class="dropzone-label">
-                      <span v-if="isDragOver">Solte para carregar</span>
-                      <span v-else><strong>Clique para selecionar</strong> ou arraste um ficheiro aqui</span>
-                    </p>
-                    <p class="dropzone-hint">Apenas ficheiros <code>.xlsx</code> &middot; máx. 20 MB</p>
-                  </template>
-                </div>
-
-                <button class="btn btn-primary" type="submit" :disabled="uploadLoading || !uploadForm.file">
-                  <span v-if="uploadLoading" class="spinner spinner-sm"></span>
-                  <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                  {{ uploadLoading ? 'A carregar...' : 'Carregar fonte de dados' }}
-                </button>
-              </form>
-
-              <!-- Parse errors after upload -->
-              <div v-if="uploadParseErrors.length > 0" class="parse-errors-panel" style="margin-top:16px">
-                <div class="parse-errors-header">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  <strong>{{ uploadParseErrors.length }} erro(s) de extração encontrados</strong>
-                </div>
-                <div class="parse-errors-list">
-                  <div v-for="(err, i) in uploadParseErrors" :key="i" class="parse-error-item">
-                    <span class="parse-error-entry">Entrada {{ err.entry }}</span>
-                    <span class="parse-error-section">[{{ err.section }}]</span>
-                    <span class="parse-error-msg">{{ err.message }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ATURB Upload card -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-header-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-              </div>
-              <div>
-                <p class="card-title">Carregar fonte — Arquivo Técnico de Urbanismo (ATURB)</p>
-                <p class="card-subtitle">Ficheiro .xlsx com os campos do arquivo técnico de urbanismo</p>
-              </div>
-            </div>
-            <div class="card-body">
-              <form @submit.prevent="uploadAturbDataset">
-                <div class="field" style="margin-bottom: 14px;">
-                  <label class="field-label" for="aturb-dataset-name">Nome da fonte</label>
-                  <input id="aturb-dataset-name" v-model="aturbUploadForm.name" placeholder="Ex: ATURB 2024" />
-                </div>
-
-                <!-- ATURB Drag-and-drop zone -->
-                <div
-                  class="dropzone"
-                  :class="{ 'dropzone-over': aturbIsDragOver, 'dropzone-filled': aturbUploadForm.file }"
-                  @dragover.prevent="aturbIsDragOver = true"
-                  @dragleave.prevent="aturbIsDragOver = false"
-                  @drop.prevent="onAturbFileDrop"
-                  @click="$refs.aturbFileInputRef.click()"
-                  role="button"
-                  tabindex="0"
-                  aria-label="Clique ou arraste um ficheiro XLSX"
-                  @keydown.enter="$refs.aturbFileInputRef.click()"
-                  @keydown.space.prevent="$refs.aturbFileInputRef.click()"
-                  style="margin-bottom: 16px;"
-                >
-                  <input
-                    id="aturbDatasetFile"
-                    ref="aturbFileInputRef"
-                    type="file"
-                    accept=".xlsx,.xls"
-                    required
-                    style="display:none"
-                    @change="onAturbUploadFileChange"
-                  />
-
-                  <template v-if="aturbUploadForm.file">
-                    <div class="dropzone-file-icon">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    </div>
-                    <p class="dropzone-filename">{{ aturbUploadForm.file.name }}</p>
-                    <p class="dropzone-size">{{ formatBytes(aturbUploadForm.file.size) }}</p>
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      type="button"
-                      style="margin-top: 4px;"
-                      @click.stop="aturbUploadForm.file = null"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      Remover ficheiro
-                    </button>
-                  </template>
-
-                  <template v-else>
-                    <div class="dropzone-icon" :class="{ pulsing: aturbIsDragOver }">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                    </div>
-                    <p class="dropzone-label">
-                      <span v-if="aturbIsDragOver">Solte para carregar</span>
-                      <span v-else><strong>Clique para selecionar</strong> ou arraste um ficheiro aqui</span>
-                    </p>
-                    <p class="dropzone-hint">Apenas ficheiros <code>.xlsx</code> &middot; máx. 20 MB</p>
-                  </template>
-                </div>
-
-                <button class="btn btn-primary" type="submit" :disabled="aturbUploadLoading || !aturbUploadForm.file">
-                  <span v-if="aturbUploadLoading" class="spinner spinner-sm"></span>
-                  <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                  {{ aturbUploadLoading ? 'A carregar...' : 'Carregar fonte ATURB' }}
-                </button>
-              </form>
-
-              <!-- ATURB Parse errors after upload -->
-              <div v-if="aturbUploadParseErrors.length > 0" class="parse-errors-panel" style="margin-top:16px">
-                <div class="parse-errors-header">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  <strong>{{ aturbUploadParseErrors.length }} erro(s) de extração encontrados</strong>
-                </div>
-                <div class="parse-errors-list">
-                  <div v-for="(err, i) in aturbUploadParseErrors" :key="i" class="parse-error-item">
-                    <span class="parse-error-entry">Entrada {{ err.entry }}</span>
-                    <span class="parse-error-section">[{{ err.section }}]</span>
-                    <span class="parse-error-msg">{{ err.message }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <!-- Datasets table -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-header-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-              </div>
-              <div>
-                <p class="card-title">Fontes carregadas</p>
-                <p class="card-subtitle">{{ datasets.length }} fonte{{ datasets.length !== 1 ? 's' : '' }} disponível{{ datasets.length !== 1 ? 'is' : '' }}</p>
-              </div>
-            </div>
-            <div class="table-wrap" style="border: none; border-top: 1px solid var(--border); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width: 40px;">Estado</th>
-                    <th>Nome</th>
-                    <th style="width:110px;">Tipo</th>
-                    <th>Data de upload</th>
-                    <th>Utilizador</th>
-                    <th>Entradas</th>
-                    <th>Tamanho</th>
-                    <th style="width:80px;">Erros</th>
-                    <th style="width: 220px;">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="datasets.length === 0">
-                    <td colspan="9">
-                      <div class="empty-state">
-                        <div class="empty-state-icon">
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-                        </div>
-                        <h3>Nenhuma fonte carregada</h3>
-                        <p>Use os formulários acima para carregar ficheiros de dados.</p>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr v-for="ds in datasets" :key="ds.id">
-                    <td>
-                      <span :class="['status-dot', (ds.parseErrorCount || 0) > 0 ? 'status-dot-inactive' : 'status-dot-active']" :title="(ds.parseErrorCount || 0) > 0 ? `${ds.parseErrorCount} erro(s)` : 'Sem erros'"></span>
-                    </td>
-                    <td><strong>{{ ds.name }}</strong></td>
-                    <td>
-                      <span :class="['badge', ds.type === 'aturb' ? 'badge-write' : 'badge-read']" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">
-                        {{ ds.type === 'aturb' ? 'ATURB' : 'Cartografia' }}
-                      </span>
-                    </td>
-                    <td class="text-muted">{{ formatDate(ds.uploadedAt) }}</td>
-                    <td class="text-muted">{{ ds.uploadedBy }}</td>
-                    <td><strong>{{ (ds.entryCount || 0).toLocaleString('pt-PT') }}</strong></td>
-                    <td class="text-muted">{{ formatBytes(ds.sizeBytes) }}</td>
-                    <td>
-                      <span v-if="ds.parseErrorCount > 0" class="badge badge-danger" :title="`${ds.parseErrorCount} erro(s) de extração`">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="margin-right:3px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        {{ ds.parseErrorCount }}
-                      </span>
-                      <span v-else class="text-muted" style="font-size:12px">—</span>
-                    </td>
-                    <td>
-                      <div class="td-actions">
-                        <button v-if="ds.parseErrorCount > 0" class="btn btn-warning btn-sm" type="button" @click="openErrorsModal(ds)">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                          Erros
-                        </button>
-                        <button class="btn btn-secondary btn-sm" type="button" @click="renameDataset(ds)">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          Editar
-                        </button>
-                        <button class="btn btn-danger btn-sm" type="button" @click="deleteDataset(ds)">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                          Remover
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Importacoes :api="apiFetch" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" @aplicada="onImportacaoAplicada" />
         </section>
 
         <!-- ── Accounts page ─────────────────────────────────────────────── -->

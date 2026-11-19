@@ -40,8 +40,15 @@ Estados: `Arquivo`, `Em Consulta`, `Empréstimo` e `-` (sem estado, mostrado com
 - Eliminar → Lixo (restaurável). Lixo e Histórico por dataset/tipo.
 - Campos vazios são omitidos ao gravar (um campo apagado no formulário **não** apaga o valor antigo no PUT — ver limitações).
 
-## Fontes de Dados (admin)
-Dois cartões de upload (drag & drop, só `.xlsx`, máx. 20 MB): Cartografia e ATURB. Lista com nome, data, utilizador, nº entradas, tamanho; renomear, apagar, ver erros/avisos do parse, ativar.
+## Importações (admin)
+Menu **Importações**: atualiza uma coleção (Cartografia ou ATURB) a partir de um `.xlsx` sem criar "fontes" novas.
+1. **Carregar** o ficheiro (máx. 20 MB); avisa se o mesmo ficheiro já foi importado.
+2. **Mapear colunas**: proposta automática por cabeçalho (aliases, rótulo ou chave do campo); cada coluna pode ir para um campo existente, "ID SIGAT", informações físicas (tipo/cor/dimensão), colunas de empréstimo, **campo novo** ou ser ignorada. Os cabeçalhos usados ficam como aliases para a próxima vez.
+3. **Comparar** com a coleção (nada é gravado): correspondência por ID SIGAT → Nº Registo → cota+descrição → descrição única → cota única. Resultado por linha: **novo**, **alterado**, **conflito**, **igual**, **ambíguo** (vários candidatos), **duplicado no ficheiro**, **erro**; e documentos **ausentes do ficheiro** (nunca são eliminados).
+4. **Decidir**: por campo, manter o valor do SIGAT ou usar o do ficheiro; ações em massa para conflitos; novos/duplicados podem ser ignorados; ambíguos exigem escolha.
+5. **Aplicar** numa única transação (se um documento foi alterado entre a comparação e a aplicação, devolve 409 e pede nova comparação).
+Fusão a 3 vias por campo: valor atual = valor da última importação → aplica o do ficheiro; ficheiro = última importação → mantém o do SIGAT (só foi editado lá); ambos mudaram e diferem → **conflito** (por omissão fica o SIGAT; depois de aplicada a importação o conflito não volta a surgir). Estados e empréstimos criados no SIGAT nunca são alterados; as colunas de empréstimo do Excel só criam/fecham empréstimos de origem `importacao`/`migracao`. Documentos sem base conhecida (criados ou editados antes da migração) tratam qualquer diferença como conflito.
+Tabela de histórico de importações na mesma página. Round-trip: exportar (inclui `ID SIGAT`), editar no Excel e importar casa 100 %.
 
 ## Exportação (Excel/CSV)
 Botão "Exportar" nas barras de resultados de Cartografia e ATURB: exporta **todos** os resultados da pesquisa/filtros atuais (sem paginação) em `.xlsx` (folha SIGAT + folha Critérios) ou `.csv` (UTF-8 com BOM, `;`). Inclui coluna `ID SIGAT`, Estado, Requisitante e Data de saída. Valores que começam por `=+-@` são protegidos contra injeção de fórmulas. No carrinho de impressão há um botão por fonte para exportar só os selecionados.

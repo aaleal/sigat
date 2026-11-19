@@ -15,10 +15,11 @@ Estado: auditoria à leitura do código, não corrigido salvo indicação.
 - SQLite com WAL e transações; a pesquisa carrega a coleção inteira em cache de memória (ok para milhares de documentos; para centenas de milhares usar FTS5).
 - Documentos antigos sem autor/outros obrigatórios continuam editáveis: só é recusado esvaziar um obrigatório já preenchido.
 - Histórico de edição guarda só o diff por campo (histórico migrado do JSON também foi convertido).
-- A importação a partir do Excel está em reformulação (Fase 4 do plano): até lá a página "Fontes de Dados" não permite carregar ficheiros.
-- Colunas não importadas do xlsx de Cartografia: TB 2, MP, CDR 2, Data de Entrada, Restauro (passarão a campos dinâmicos na Fase 4).
+- Documentos migrados do JSON com edições não têm base de fusão (`dados_importados` nulo): na 1.ª importação qualquer diferença é conflito.
+- A importação não elimina documentos ausentes do ficheiro nem funde duplicados (só os sinaliza); não há "reverter importação".
+- Datas de empréstimo importadas são convertidas de `dd/mm/aaaa`/ISO; formatos desconhecidos usam a data de hoje.
 - Empréstimos importados/migrados podem não ter data prevista ("sem prazo"); os alertas por email não existem.
-- ATURB importa só 6 colunas de um livro com muito mais informação (`bdarquivotecnico.xlsx`).
+- ATURB: só as 6 colunas conhecidas vêm mapeadas por omissão; as restantes colunas de `bdarquivotecnico.xlsx` (outras folhas) podem ser importadas como campos novos.
 
 ## Funcionais
 - Carrinho de impressão só em memória.

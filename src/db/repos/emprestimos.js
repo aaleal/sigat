@@ -250,6 +250,17 @@ function atualizar(emprestimoId, patch, utilizador) {
   return paraApi(db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(emprestimoId));
 }
 
+/** documento_id -> empréstimos (para a comparação de importações). */
+function porColecao(colecao) {
+  const rows = getDb().prepare(`SELECT e.* FROM emprestimos e JOIN documentos d ON d.id = e.documento_id WHERE d.colecao = ?`).all(colecao);
+  const mapa = new Map();
+  for (const r of rows) {
+    if (!mapa.has(r.documento_id)) mapa.set(r.documento_id, []);
+    mapa.get(r.documento_id).push(paraApi(r));
+  }
+  return mapa;
+}
+
 module.exports = {
-  hoje, somarDias, prazoPadraoDias, paraApi, ativoDe, criar, devolver, diasEntre, listar, resumo, requisitantes, listarDoDocumento, atualizar,
+  hoje, somarDias, prazoPadraoDias, paraApi, ativoDe, criar, devolver, diasEntre, listar, resumo, requisitantes, listarDoDocumento, atualizar, porColecao,
 };

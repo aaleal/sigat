@@ -219,7 +219,32 @@ function definirEstado(id, estado, utilizador) {
   return obter(id);
 }
 
+/** Linha crua (sem os campos de sistema planos) para a fusão de importações. */
+function bruto(id) {
+  const r = getDb().prepare('SELECT * FROM documentos WHERE id = ?').get(id);
+  return r ? { colecao: r.colecao, dados: deJson(r.dados), dadosImportados: r.dados_importados ? deJson(r.dados_importados, null) : null, atualizadoEm: r.atualizado_em } : null;
+}
+
+// ── Importação ──
+function bases(colecao) {
+  const rows = getDb().prepare('SELECT id, dados_importados FROM documentos WHERE colecao = ? AND eliminado_em IS NULL').all(colecao);
+  return new Map(rows.map((r) => [r.id, r.dados_importados ? deJson(r.dados_importados, null) : null]));
+}
+
+/** Atualiza `dados` e a base da próxima fusão; `alteracoes` só serve para o histórico. */
+function aplicarImportacao(id, dados, dadosImportados, importacaoId, utilizador, alteracoes) {
+  const row = getDb().prepare('SELECT colecao FROM documentos WHERE id = ?').get(id);
+  getDb().prepare(`UPDATE documentos SET dados = ?, dados_importados = ?, importacao_id = ?,
+                   atualizado_em = CASE WHEN ? THEN ? ELSE atualizado_em END, atualizado_por = CASE WHEN ? THEN ? ELSE atualizado_por END WHERE id = ?`)
+    .run(JSON.stringify(semVazios(dados)), JSON.stringify(semVazios(dadosImportados)), importacaoId,
+      Object.keys(alteracoes).length ? 1 : 0, new Date().toISOString(), Object.keys(alteracoes).length ? 1 : 0, utilizador, id);
+  if (Object.keys(alteracoes).length) {
+    historico.registar({ colecao: row.colecao, documentoId: id, acao: 'importar', utilizador, importacaoId, detalhes: { alteracoes } });
+  }
+  invalidar(row.colecao);
+}
+
 module.exports = {
   ESTADOS, ErroValidacao, invalidar, listar, contar, obter, listarEliminados, criar, atualizar, eliminar, restaurar, definirEstado,
-  normalizarDados, semVazios, proximoNumero,
+  normalizarDados, semVazios, proximoNumero, bases, aplicarImportacao, bruto,
 };

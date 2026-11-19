@@ -5,6 +5,7 @@ const { COLECOES, CAMPOS } = require('../campos');
 
 const MIGRACOES_DIR = path.join(__dirname, 'migrations');
 let db = null;
+let diretorio = null;
 
 function aplicarMigracoes(conexao) {
   conexao.exec('CREATE TABLE IF NOT EXISTS schema_migrations (versao INTEGER PRIMARY KEY, aplicada_em TEXT NOT NULL)');
@@ -47,6 +48,7 @@ function semear(conexao) {
 
 function abrir(dir) {
   fecharBd();
+  diretorio = dir;
   fs.mkdirSync(dir, { recursive: true });
   db = new Database(path.join(dir, 'sigat.db'));
   db.pragma('journal_mode = WAL');
@@ -71,4 +73,4 @@ function transaction(fn) {
   return getDb().transaction(fn)();
 }
 
-module.exports = { abrir, getDb, fecharBd, transaction };
+module.exports = { abrir, getDb, fecharBd, transaction, getDir: () => diretorio };
