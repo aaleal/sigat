@@ -7,21 +7,26 @@ Aplicação web interna para pesquisar, consultar e gerir o inventário de um ar
 - Frontend: Vue 3 + Vite (build estático em `public/`, servido pelo backend).
 - Documentação técnica e de negócio: [knowledge/](knowledge/README.md).
 
-## Arranque local
+## Arranque local (sem Docker)
+Requisitos: Node.js 22+. A base de dados é um ficheiro SQLite embebido (`data/sigat.db`), criado e migrado automaticamente no arranque — não é preciso instalar nem iniciar nenhum serviço de BD.
 ```bash
 npm install
-npm run build:client   # gera public/
-npm start              # http://localhost:3000
+npm start              # http://localhost:3000 (o frontend já vem compilado em public/)
 npm test               # testes (node:test)
-npm run dev:client     # servidor de desenvolvimento do frontend
 ```
+O `public/` está versionado, por isso só é preciso `npm run build:client` depois de alterar o frontend.
+
+Desenvolvimento do frontend (com hot reload): em dois terminais, `npm start` (API em :3000) e `npm run dev:client` (http://localhost:5173, com proxy de `/api` para :3000).
+
 Variáveis: `PORT` (3000), `JWT_SECRET` (obrigatório em produção), `SIGAT_DATA_DIR` (pasta da base de dados, por omissão `./data`), `SIGAT_PRAZO_EMPRESTIMO_DIAS` (30).
 
-## Docker
+## Docker (opcional)
 ```bash
 docker compose up --build
 ```
 Porta 3000, dados em `./data` (volume). A imagem corre como utilizador `node` (uid 1000): a pasta `data/` do anfitrião tem de ser gravável por esse utilizador (`chown -R 1000:1000 data`). Definir um `JWT_SECRET` próprio no `docker-compose.yml`.
+
+Com Podman rootless: `podman-compose up --build -d` (o `docker-compose.yml` inclui `x-podman.uidmaps`/`gidmaps` para que o `node` do contentor seja o dono de `./data` no anfitrião).
 
 ## Primeiro acesso
 Utilizador `admin` / `admin123`: a aplicação obriga a definir uma nova password (mínimo 8 caracteres) no primeiro login.

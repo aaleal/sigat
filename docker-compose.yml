@@ -26,4 +26,7 @@ services:
     volumes:
       - ./data:/app/data
       # - ./backups:/backups
+    # Podman rootless: mapear o utilizador "node" (1000) para o dono de ./data no anfitrião (ignorado pelo Docker)
+    x-podman.uidmaps: ["0:1:1000", "1000:0:1", "1001:1001:64536"]
+    x-podman.gidmaps: ["0:1:1000", "1000:0:1", "1001:1001:64536"]
     restart: unless-stopped
