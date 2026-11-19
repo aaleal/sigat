@@ -27,12 +27,11 @@ Estado: auditoria à leitura do código, não corrigido salvo indicação.
 - ATURB importa só 6 colunas de um livro com muito mais informação (`bdarquivotecnico.xlsx`: localização no depósito, pasta, cota, notas…).
 
 ## Funcionais
-- Sem exportação para Excel/CSV, apenas impressão PDF por browser.
 - Carrinho de impressão só em memória.
-- Sem pesquisa full-text com relevância/acentos (comparação por `includes` em minúsculas; "Lisboa" ≠ "lisbôa").
+- Pesquisa difusa (erros de escrita) não existe; apenas acentos/maiúsculas/parciais/relevância.
 - Sem recuperação de password por self-service.
 - Sem testes automáticos, lint ou CI.
 - `App.vue` monolítico (~3500 linhas) e duplicação de lógica Cartografia/ATURB.
 - README da raiz desatualizado (descreve fluxo TXT / ID1..ID9).
-- `uuid` não utilizado; mensagem de erro em `/datasets/upload` diz "apenas .xlsx" mas aceita também `.txt`.
+- Mensagem de erro em `/datasets/upload` diz "apenas .xlsx" mas aceita também `.txt`.
 - O Dockerfile não faz build do frontend (depende do `public/` commitado) e corre como root.

@@ -14,7 +14,7 @@ Menu: **Cartografia**, **ATURB**, Fontes de Dados (admin), Gestão de Contas (ad
 
 ## Cartografia (pesquisa)
 - Selecionar fonte de dados (obrigatório antes de pesquisar).
-- Pesquisa livre `q` (concatena todos os campos) + filtros avançados por campo: cabeçalho, descrição, notas, localização, assuntos, cota, CDR, TB, nº registo, autor, ano, tipo, cor, dimensão, estado.
+- Pesquisa livre `q` (tolerante a acentos/maiúsculas, palavras parciais, ordenada por relevância; aspas e `-termo`) + filtros avançados por campo: cabeçalho, descrição, notas, localização, assuntos, cota, CDR, TB, nº registo, autor, ano, tipo, cor, dimensão, estado.
 - Filtros **numéricos** (cota, CDR, TB, nº registo): comparam por número exato extraído (ex.: "12" não casa "123"); sem dígitos no filtro → substring.
 - Sugestões (datalist) e listas distintas via `/api/entries/distinct`.
 - Ordenação multi-coluna (shift/click; badges de ordem). `cota`, `cdr`, `tb` ordenam pelo 1.º número extraído; `nrRegisto` como número; resto `localeCompare('pt-PT', {numeric:true})`.
@@ -35,6 +35,9 @@ Filtros: autor, título, local, data, caixa nº (numérico exato), estado; orden
 
 ## Fontes de Dados (admin)
 Dois cartões de upload (drag & drop, só `.xlsx`, máx. 20 MB): Cartografia e ATURB. Lista com nome, data, utilizador, nº entradas, tamanho; renomear, apagar, ver erros/avisos do parse, ativar.
+
+## Exportação (Excel/CSV)
+Botão "Exportar" nas barras de resultados de Cartografia e ATURB: exporta **todos** os resultados da pesquisa/filtros atuais (sem paginação) em `.xlsx` (folha SIGAT + folha Critérios) ou `.csv` (UTF-8 com BOM, `;`). Inclui coluna `ID SIGAT`, Estado, Requisitante e Data de saída. Valores que começam por `=+-@` são protegidos contra injeção de fórmulas. No carrinho de impressão há um botão por fonte para exportar só os selecionados.
 
 ## Impressão PDF
 Carrinho em memória (perde-se ao recarregar a página) com entradas de Cartografia e ATURB misturadas. "Imprimir PDF" abre nova janela com cartões formatados e chama `window.print()` (o utilizador escolhe "Guardar como PDF"). Requer pop-ups permitidos.

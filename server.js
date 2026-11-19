@@ -10,6 +10,10 @@ const { randomUUID } = require('crypto');
 const { parseDatabaseTxt } = require('./src/parser');
 const { parseAturbXlsx } = require('./src/parserXlsx');
 const { parseCartografiaXlsx, attachNrRegisto } = require('./src/parserCartografiaXlsx');
+const { CAMPOS } = require('./src/campos');
+const { queryEntries } = require('./src/query');
+const { gerarExportacao, LIMITE_LINHAS } = require('./src/export');
+const { normalizar } = require('./src/search');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -111,22 +115,34 @@ function requireRole(...roles) {
   };
 }
 
-// ── Helper: exact numeric matching for filter fields ─────────────────────
-function matchesNumericFilter(fieldValue, filterValue) {
-  const fv = String(fieldValue || '');
-  const filt = String(filterValue || '').trim();
-  if (!filt) return true;
-  // Extract filter number (first sequence of digits)
-  const filterMatch = filt.match(/\d+/);
-  if (!filterMatch) {
-    // No number in filter → fallback to substring
-    return fv.toLowerCase().includes(filt.toLowerCase());
+// ── Helpers de pesquisa ──────────────────────────────────────────────────
+function paramsDePesquisa(query, campos) {
+  const filtros = {};
+  for (const c of campos) {
+    const v = (query[c.chave] || '').toString().trim();
+    if (v) filtros[c.chave] = v;
   }
-  const searchNum = parseInt(filterMatch[0], 10);
-  // Extract all numbers from field value
-  const fieldNums = fv.match(/\d+/g);
-  if (!fieldNums) return false;
-  return fieldNums.some((n) => parseInt(n, 10) === searchNum);
+  const lista = (v) => (v || '').toString().split(',').map((s) => s.trim()).filter(Boolean);
+  return {
+    q: (query.q || '').toString().trim(),
+    filtros,
+    vazios: lista(query.vazios),
+    ids: lista(query.ids),
+    sortKeys: (query.sortKeys || '').toString().trim(),
+  };
+}
+
+// Cache do conteúdo dos datasets para leituras (invalidada por mtime/tamanho); não alterar o objeto devolvido.
+const cacheDatasets = new Map();
+async function lerDatasetEmCache(datasetId) {
+  const file = path.join(DATASET_CONTENT_DIR, `${datasetId}.json`);
+  const st = await fs.stat(file).catch(() => null);
+  if (!st) return { entries: [] };
+  const cached = cacheDatasets.get(datasetId);
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.payload;
+  const payload = await readJson(file, { entries: [] });
+  cacheDatasets.set(datasetId, { mtimeMs: st.mtimeMs, size: st.size, payload });
+  return payload;
 }
 
 async function getActiveDatasetMeta() {
@@ -523,8 +539,7 @@ app.get('/api/entries', authMiddleware, async (req, res) => {
     return res.status(404).json({ message: 'Fonte de dados não encontrada.' });
   }
 
-  const datasetFile = path.join(DATASET_CONTENT_DIR, `${datasetId}.json`);
-  const payload = await readJson(datasetFile, { entries: [] });
+  const payload = await lerDatasetEmCache(datasetId);
   const entries = payload.entries || [];
 
   if (entries.length === 0) {
@@ -537,124 +552,8 @@ app.get('/api/entries', authMiddleware, async (req, res) => {
     });
   }
 
-  const dsType = selectedDataset.type || 'cartografia';
-  const q = (req.query.q || '').toString().trim().toLowerCase();
-
-  let filtered;
-  if (dsType === 'aturb') {
-    const f = {
-      autor:   (req.query.autor   || '').toString().trim().toLowerCase(),
-      titulo:  (req.query.titulo  || '').toString().trim().toLowerCase(),
-      local:   (req.query.local   || '').toString().trim().toLowerCase(),
-      data:    (req.query.data    || '').toString().trim().toLowerCase(),
-      caixaNr: (req.query.caixaNr || '').toString().trim().toLowerCase(),
-      estado:  (req.query.estado  || '').toString().trim().toLowerCase(),
-    };
-    filtered = entries.filter((entry) => {
-      const v = {
-        autor:   String(entry.autor   ?? '').toLowerCase(),
-        titulo:  String(entry.titulo  ?? '').toLowerCase(),
-        local:   String(entry.local   ?? '').toLowerCase(),
-        data:    String(entry.data    ?? '').toLowerCase(),
-        caixaNr: String(entry.caixaNr ?? '').toLowerCase(),
-        estado:  String(entry.estado  ?? '').toLowerCase(),
-      };
-      if (f.autor   && !v.autor.includes(f.autor))     return false;
-      if (f.titulo  && !v.titulo.includes(f.titulo))   return false;
-      if (f.local   && !v.local.includes(f.local))     return false;
-      if (f.data    && !v.data.includes(f.data))       return false;
-      if (f.caixaNr && !matchesNumericFilter(entry.caixaNr, f.caixaNr)) return false;
-      if (f.estado  && !v.estado.includes(f.estado))   return false;
-      if (!q) return true;
-      return Object.values(v).join(' ').includes(q);
-    });
-  } else {
-    const filters = {
-      q,
-      cabecalho:   (req.query.cabecalho   || '').toString().trim().toLowerCase(),
-      descricao:   (req.query.descricao   || '').toString().trim().toLowerCase(),
-      notas:       (req.query.notas       || '').toString().trim().toLowerCase(),
-      localizacao: (req.query.localizacao || '').toString().trim().toLowerCase(),
-      assuntos:    (req.query.assuntos    || '').toString().trim().toLowerCase(),
-      cota:        (req.query.cota        || '').toString().trim().toLowerCase(),
-      cdr:         (req.query.cdr         || '').toString().trim().toLowerCase(),
-      tb:          (req.query.tb          || '').toString().trim().toLowerCase(),
-      nrRegisto:   (req.query.nrRegisto   || '').toString().trim().toLowerCase(),
-      autor:       (req.query.autor       || '').toString().trim().toLowerCase(),
-      ano:         (req.query.ano         || '').toString().trim().toLowerCase(),
-      tipo:        (req.query.tipo        || '').toString().trim().toLowerCase(),
-      cor:         (req.query.cor         || '').toString().trim().toLowerCase(),
-      dimensao:    (req.query.dimensao    || '').toString().trim().toLowerCase(),
-      estado:      (req.query.estado      || '').toString().trim().toLowerCase(),
-    };
-    filtered = entries.filter((entry) => {
-      const values = {
-        cabecalho:   String(entry.cabecalho   ?? '').toLowerCase(),
-        descricao:   String(entry.descricao   ?? '').toLowerCase(),
-        notas:       String(entry.notas       ?? '').toLowerCase(),
-        localizacao: String(entry.localizacao ?? '').toLowerCase(),
-        assuntos:    String(entry.assuntos    ?? '').toLowerCase(),
-        cota:        String(entry.cota        ?? '').toLowerCase(),
-        cdr:         String(entry.cdr         ?? '').toLowerCase(),
-        tb:          String(entry.tb          ?? '').toLowerCase(),
-        nrRegisto:   String(entry.nrRegisto   ?? '').toLowerCase(),
-        autor:       String(entry.autor       ?? '').toLowerCase(),
-        ano:         String(entry.ano         ?? '').toLowerCase(),
-        tipo:        String(entry.tipo        ?? '').toLowerCase(),
-        cor:         String(entry.cor         ?? '').toLowerCase(),
-        dimensao:    String(entry.dimensao    ?? '').toLowerCase(),
-        estado:      String(entry.estado      ?? '').toLowerCase(),
-      };
-      if (filters.cabecalho   && !values.cabecalho.includes(filters.cabecalho))     return false;
-      if (filters.descricao   && !values.descricao.includes(filters.descricao))     return false;
-      if (filters.notas       && !values.notas.includes(filters.notas))             return false;
-      if (filters.localizacao && !values.localizacao.includes(filters.localizacao)) return false;
-      if (filters.assuntos    && !values.assuntos.includes(filters.assuntos))       return false;
-      if (filters.cota        && !matchesNumericFilter(entry.cota, filters.cota))               return false;
-      if (filters.cdr         && !matchesNumericFilter(entry.cdr, filters.cdr))                 return false;
-      if (filters.tb          && !matchesNumericFilter(entry.tb, filters.tb))                   return false;
-      if (filters.nrRegisto   && !matchesNumericFilter(entry.nrRegisto, filters.nrRegisto))     return false;
-      if (filters.autor       && !values.autor.includes(filters.autor))             return false;
-      if (filters.ano         && !values.ano.includes(filters.ano))                 return false;
-      if (filters.tipo        && !values.tipo.includes(filters.tipo))               return false;
-      if (filters.cor         && !values.cor.includes(filters.cor))                 return false;
-      if (filters.dimensao    && !values.dimensao.includes(filters.dimensao))       return false;
-      if (filters.estado      && !values.estado.includes(filters.estado))           return false;
-      if (!filters.q) return true;
-      const aggregate = Object.values(values).join(' ');
-      return aggregate.includes(filters.q);
-    });
-  }
-
-  // ── Server-side sorting ───────────────────────────────────────────────
-  const sortKeysParam = (req.query.sortKeys || '').toString().trim();
-  if (sortKeysParam) {
-    const NUMERIC_SORT_KEYS = new Set(['nrRegisto', 'caixaNr']);
-    const EXTRACT_NUM_SORT_KEYS = new Set(['cdr', 'tb', 'cota']);
-    const sortSpecs = sortKeysParam.split(',').map(s => {
-      const [key, dir] = s.split(':');
-      return { key, dir: dir === 'desc' ? 'desc' : 'asc' };
-    });
-    filtered.sort((a, b) => {
-      for (const { key, dir } of sortSpecs) {
-        const d = dir === 'asc' ? 1 : -1;
-        let cmp;
-        if (NUMERIC_SORT_KEYS.has(key)) {
-          cmp = (Number(a[key]) || 0) - (Number(b[key]) || 0);
-        } else if (EXTRACT_NUM_SORT_KEYS.has(key)) {
-          const extractNum = (str) => { if (!str) return null; const m = String(str).match(/\d+/); return m ? parseInt(m[0], 10) : null; };
-          const na = extractNum(a[key]);
-          const nb = extractNum(b[key]);
-          if (na != null && nb != null) cmp = na - nb;
-          else cmp = String(a[key] ?? '').localeCompare(String(b[key] ?? ''), 'pt-PT', { numeric: true });
-        } else {
-          cmp = String(a[key] ?? '').localeCompare(String(b[key] ?? ''), 'pt-PT', { numeric: true });
-        }
-        if (cmp !== 0) return cmp * d;
-      }
-      return 0;
-    });
-  }
+  const campos = CAMPOS[selectedDataset.type || 'cartografia'] || CAMPOS.cartografia;
+  const { items: filtered, ordenacao } = queryEntries(entries, campos, paramsDePesquisa(req.query, campos));
 
   const start = (page - 1) * pageSize;
   const items = filtered.slice(start, start + pageSize);
@@ -664,8 +563,66 @@ app.get('/api/entries', authMiddleware, async (req, res) => {
     total: filtered.length,
     page,
     pageSize,
+    ordenacao,
     items,
   });
+});
+
+// ── Exportação (xlsx/csv) dos resultados de uma pesquisa ─────────────────
+app.get('/api/entries/export', authMiddleware, async (req, res) => {
+  const datasetId = (req.query.datasetId || '').toString().trim();
+  const registry = await readJson(DATASETS_FILE, { activeDatasetId: null, datasets: [] });
+  const dataset = registry.datasets.find((d) => d.id === datasetId);
+  if (!dataset) return res.status(404).json({ message: 'Fonte de dados não encontrada.' });
+
+  const formato = req.query.formato === 'csv' ? 'csv' : 'xlsx';
+  const tipo = dataset.type || 'cartografia';
+  const campos = CAMPOS[tipo] || CAMPOS.cartografia;
+  const payload = await lerDatasetEmCache(datasetId);
+  const params = paramsDePesquisa(req.query, campos);
+  const { items } = queryEntries(payload.entries || [], campos, params);
+
+  if (items.length > LIMITE_LINHAS) {
+    return res.status(413).json({ message: `Demasiados resultados para exportar (máximo ${LIMITE_LINHAS}). Refine a pesquisa.` });
+  }
+
+  const pedidas = String(req.query.colunas || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const camposExport = pedidas.length ? campos.filter((c) => pedidas.includes(c.chave)) : campos;
+  const colunas = [
+    { rotulo: 'ID SIGAT', valor: (e) => e.sourceEntryNumber },
+    ...camposExport.map((c) => ({
+      rotulo: c.rotulo,
+      valor: (e) => (c.chave === 'estado' && e.estado === '-' ? '' : e[c.chave]),
+    })),
+    { rotulo: 'Requisitante', valor: (e) => e.estadoMeta?.requisitante || '' },
+    { rotulo: 'Data de saída', valor: (e) => e.estadoMeta?.dataSaida || '' },
+  ];
+
+  const criterios = [
+    ['Coleção', tipo],
+    ['Fonte de dados', dataset.name],
+    ['Exportado em', new Date().toISOString()],
+    ['Exportado por', req.user.username],
+    ['Pesquisa', params.q || ''],
+    ...Object.entries(params.filtros).filter(([, v]) => String(v).trim()).map(([k, v]) => [`Filtro ${k}`, v]),
+    ['Campos vazios', params.vazios.join(', ')],
+    ['Ordenação', params.sortKeys || '(relevância ou ordem original)'],
+    ['Total de linhas', items.length],
+  ];
+
+  const { buffer, contentType, extensao } = gerarExportacao({ formato, colunas, linhas: items, criterios });
+
+  const agora = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const carimbo = `${agora.getFullYear()}${p2(agora.getMonth() + 1)}${p2(agora.getDate())}-${p2(agora.getHours())}${p2(agora.getMinutes())}`;
+  const history = appendHistory({ history: [...(payload.history || [])] }, 'export', req.user.username,
+    { sourceEntryNumber: 0, cabecalho: `Exportação ${extensao.toUpperCase()}` },
+    { total: items.length, q: params.q || '', filtros: params.filtros, vazios: params.vazios });
+  await writeJson(path.join(DATASET_CONTENT_DIR, `${datasetId}.json`), { ...payload, history });
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="sigat-${tipo}-${carimbo}.${extensao}"`);
+  return res.send(buffer);
 });
 
 app.get('/api/bootstrap', authMiddleware, async (req, res) => {
@@ -683,7 +640,7 @@ app.get('/api/bootstrap', authMiddleware, async (req, res) => {
 app.get('/api/entries/distinct', authMiddleware, async (req, res) => {
   const datasetId = (req.query.datasetId || '').toString().trim();
   const field = (req.query.field || '').toString().trim();
-  const q = (req.query.q || '').toString().trim().toLowerCase();
+  const q = normalizar(req.query.q || '');
 
   const cartografiaFields = ['cabecalho', 'descricao', 'notas', 'localizacao', 'assuntos',
                               'cota', 'cdr', 'tb', 'nrRegisto', 'autor', 'ano', 'tipo', 'cor', 'dimensao', 'estado'];
@@ -699,16 +656,15 @@ app.get('/api/entries/distinct', authMiddleware, async (req, res) => {
     return res.status(404).json({ message: 'Fonte de dados não encontrada.' });
   }
 
-  const datasetFile = path.join(DATASET_CONTENT_DIR, `${datasetId}.json`);
-  const payload = await readJson(datasetFile, { entries: [] });
+  const payload = await lerDatasetEmCache(datasetId);
   const entries = payload.entries || [];
 
   const seen = new Set();
   const results = [];
   for (const entry of entries) {
-    const val = (entry[field] || '').trim();
+    const val = String(entry[field] ?? '').trim();
     if (!val || seen.has(val)) continue;
-    if (q && !val.toLowerCase().includes(q)) continue;
+    if (q && !normalizar(val).includes(q)) continue;
     seen.add(val);
     results.push(val);
   }

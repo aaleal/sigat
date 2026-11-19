@@ -20,6 +20,7 @@ Base: `/api`. JSON, erros no formato `{ message }`. Auth: `Authorization: Bearer
 | DELETE | `/datasets/:id` | admin,write | apaga registo e ficheiro; ativo passa ao primeiro restante |
 | GET | `/datasets/:id/errors` | any | `{parseErrors, parseWarnings}` |
 | GET | `/entries` | any | ver abaixo; `datasetId` obrigatório |
+| GET | `/entries/export` | any | mesmos parâmetros de `/entries` (sem paginação) + `formato=xlsx|csv`, `colunas=a,b`, `ids=1,2`; devolve ficheiro; regista `export` no histórico |
 | GET | `/entries/distinct` | any | `datasetId`, `field`, `q?` → `{suggestions}` |
 | POST | `/entries/:datasetId` | admin,write | cria; `sourceEntryNumber = max+1`, `estado '-'` |
 | PUT | `/entries/:datasetId/:sourceEntryNumber` | admin,write | merge de campos não vazios |
@@ -30,11 +31,12 @@ Base: `/api`. JSON, erros no formato `{ message }`. Auth: `Authorization: Bearer
 | GET | `/history/:datasetId` | any | mais recente primeiro |
 
 ## `GET /entries`
-Query: `datasetId`, `page`, `pageSize` (máx 100), `q`, `sortKeys` (ex.: `cota:asc,autor:desc`), mais filtros por campo.
-- Cartografia: `cabecalho, descricao, notas, localizacao, assuntos, cota, cdr, tb, nrRegisto, autor, ano, tipo, cor, dimensao, estado`. Numéricos (match exato do número): `cota, cdr, tb, nrRegisto`. Restantes: substring, case-insensitive.
+Query: `datasetId`, `page`, `pageSize` (máx 100), `q`, `sortKeys` (ex.: `cota:asc,autor:desc`), `vazios` (ex.: `cota,autor` → só entradas com esses campos vazios), `ids` (lista de `sourceEntryNumber`), mais filtros por campo.
+- `q` (src/search.js): ignora acentos/maiúsculas; todos os termos têm de casar (AND) por palavra, prefixo ou substring; termo só com dígitos = número exato; `"frase exata"`; `-termo` exclui. Sem `sortKeys`, ordena por relevância (pesos por campo em `src/campos.js`) e a resposta traz `ordenacao: 'relevancia'`.
+- Cartografia: `cabecalho, descricao, notas, localizacao, assuntos, cota, cdr, tb, nrRegisto, autor, ano, tipo, cor, dimensao, estado`. Numéricos (match exato do número): `cota, cdr, tb, nrRegisto`. Restantes: substring sem acentos/maiúsculas.
 - ATURB: `autor, titulo, local, data, caixaNr, estado` (`caixaNr` numérico).
 - O tipo de filtros é decidido por `dataset.type`.
-- Resposta: `{ activeDataset, total, page, pageSize, items }`.
+- Resposta: `{ activeDataset, total, page, pageSize, ordenacao, items }`.
 
 ## Notas de implementação
 - `sourceEntryNumber` é a chave da entrada (única por dataset). Cuidado: ao criar usa `max+1` sobre `entries` apenas (não considera o lixo) → pode colidir com uma entrada eliminada e depois restaurada.

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import ExportarBotao from './components/ExportarBotao.vue';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,8 @@ const loginLoading = ref(false);
 const userLoading = ref(false);
 const datasetDropdownOpen = ref(false);
 const sortKeys = ref([]);
+const ordenacao = ref('campos');
+const aturbOrdenacao = ref('campos');
 const isDragOver = ref(false);
 
 // ── UI state ─────────────────────────────────────────────────────────────
@@ -383,6 +386,23 @@ const aturbHasActiveFilters = computed(() => Object.values(aturbFilters).some((v
 
 const cartCount = computed(() => cart.value.length);
 
+// Itens do carrinho agrupados por fonte de dados (a exportação é feita por fonte).
+const cartGroups = computed(() => {
+  const groups = new Map();
+  for (const item of cart.value) {
+    if (!groups.has(item.datasetId)) {
+      const ds = datasets.value.find((d) => d.id === item.datasetId);
+      groups.set(item.datasetId, { datasetId: item.datasetId, nome: ds?.name || (item.type === 'aturb' ? 'ATURB' : 'Cartografia'), ids: [] });
+    }
+    groups.get(item.datasetId).ids.push(item.entry.sourceEntryNumber);
+  }
+  return [...groups.values()];
+});
+
+function cartExportParams(group) {
+  return new URLSearchParams({ datasetId: group.datasetId, ids: group.ids.join(',') });
+}
+
 function formatBytes(value) {
   if (!value) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -602,6 +622,7 @@ async function loadEntries() {
     const payload = await apiFetch(`/api/entries?${buildEntriesQuery().toString()}`);
     entries.value = payload.items || [];
     totalEntries.value = payload.total || 0;
+    ordenacao.value = payload.ordenacao || 'campos';
   } finally {
     entriesLoading.value = false;
   }
@@ -914,6 +935,7 @@ async function loadAturbEntries() {
     const payload = await apiFetch(`/api/entries?${buildAturbEntriesQuery().toString()}`);
     aturbEntries.value = payload.items || [];
     aturbTotalEntries.value = payload.total || 0;
+    aturbOrdenacao.value = payload.ordenacao || 'campos';
   } finally {
     aturbEntriesLoading.value = false;
   }
@@ -1277,7 +1299,7 @@ async function loadHistory() {
 }
 
 function historyActionLabel(action) {
-  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado' };
+  const labels = { create: 'Criação', edit: 'Edição', delete: 'Eliminação', restore: 'Restauro', estado: 'Estado', export: 'Exportação' };
   return labels[action] || action;
 }
 
@@ -1345,6 +1367,15 @@ function historyDetailsDisplay(item) {
     const e = d.entry;
     const info = e.cabecalho || e.titulo || '';
     return info ? `Entrada: ${info}` : '';
+  }
+
+  // Export — total e critérios
+  if (item.action === 'export') {
+    const parts = [`${d.total ?? 0} linha(s)`];
+    if (d.q) parts.push(`pesquisa: "${d.q}"`);
+    const fs = Object.entries(d.filtros || {}).map(([k, v]) => `${k}=${v}`);
+    if (fs.length) parts.push(`filtros: ${fs.join(', ')}`);
+    return parts.join(' · ');
   }
 
   // Fallback: try to stringify
@@ -2245,6 +2276,7 @@ onBeforeUnmount(() => {
                     <label class="field-label" for="search-q">Pesquisa livre</label>
                     <input id="search-q" v-model="filters.q" list="suggest-q" placeholder="Ex: Avenida da Liberdade..." :disabled="!selectedDatasetId" />
                     <datalist id="suggest-q"><option v-for="s in qSuggestions" :key="s" :value="s" /></datalist>
+                    <p class="field-hint" style="margin:4px 0 0;font-size:11px;color:var(--muted);">Ignora acentos e maiúsculas; aceita partes de palavras. Use "aspas" para uma frase exata e -termo para excluir.</p>
                   </div>
                   <div class="search-inline-actions">
                     <button class="btn btn-primary" type="submit" :disabled="!selectedDatasetId || entriesLoading">
@@ -2313,7 +2345,10 @@ onBeforeUnmount(() => {
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
                 <span>Fonte: <strong>{{ selectedDataset?.name }}</strong></span>
                 <span>{{ totalEntries.toLocaleString('pt-PT') }} resultado{{ totalEntries !== 1 ? 's' : '' }}</span>
+                <span v-if="filters.q.trim() && ordenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
+                <button v-else-if="filters.q.trim() && sortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="sortKeys = []; page = 1; loadEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+                  <ExportarBotao url="/api/entries/export" :get-params="buildEntriesQuery" :token="token" :disabled="totalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                   <button v-if="canManageEntries" class="btn btn-primary btn-sm" type="button" @click="openCreateEntry(selectedDatasetId, 'cartografia')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Adicionar entrada
@@ -2943,6 +2978,7 @@ onBeforeUnmount(() => {
                     <label class="field-label" for="aturb-search-q">Pesquisa livre</label>
                     <input id="aturb-search-q" v-model="aturbFilters.q" list="suggest-aturb-q" placeholder="Ex: Ajuda, Belém..." :disabled="!aturbSelectedDatasetId" />
                     <datalist id="suggest-aturb-q"><option v-for="s in aturbQSuggestions" :key="s" :value="s" /></datalist>
+                    <p class="field-hint" style="margin:4px 0 0;font-size:11px;color:var(--muted);">Ignora acentos e maiúsculas; aceita partes de palavras. Use "aspas" para uma frase exata e -termo para excluir.</p>
                   </div>
                   <div class="search-inline-actions">
                     <button class="btn btn-primary" type="submit" :disabled="!aturbSelectedDatasetId || aturbEntriesLoading">
@@ -3055,7 +3091,10 @@ onBeforeUnmount(() => {
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
                 <span>Fonte: <strong>{{ aturbSelectedDataset?.name }}</strong></span>
                 <span>{{ aturbTotalEntries.toLocaleString('pt-PT') }} resultado{{ aturbTotalEntries !== 1 ? 's' : '' }}</span>
+                <span v-if="aturbFilters.q.trim() && aturbOrdenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
+                <button v-else-if="aturbFilters.q.trim() && aturbSortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="aturbSortKeys = []; aturbPage = 1; loadAturbEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+                  <ExportarBotao url="/api/entries/export" :get-params="buildAturbEntriesQuery" :token="token" :disabled="aturbTotalEntries === 0" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                   <button v-if="canManageEntries" class="btn btn-primary btn-sm" type="button" @click="openCreateEntry(aturbSelectedDatasetId, 'aturb')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Adicionar entrada
@@ -3221,6 +3260,7 @@ onBeforeUnmount(() => {
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   Limpar lista
                 </button>
+                <ExportarBotao v-for="g in cartGroups" :key="g.datasetId" url="/api/entries/export" :get-params="() => cartExportParams(g)" :token="token" :rotulo="`Exportar ${g.nome} (${g.ids.length})`" @ok="addToast($event, 'success')" @erro="addToast($event, 'error')" />
                 <button class="btn btn-primary btn-sm" type="button" :disabled="cartCount === 0" @click="exportCartPDF()">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                   Imprimir PDF

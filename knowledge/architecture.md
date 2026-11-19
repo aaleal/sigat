@@ -3,7 +3,7 @@
 ## Stack
 - Backend: Node.js 20, Express 5, `multer` (upload em memória, limite 20 MB), `bcryptjs`, `jsonwebtoken`, `cors`, `xlsx` (SheetJS 0.18.5).
 - Frontend: Vue 3 (Composition API, `<script setup>`), Vite 5, CSS próprio em `frontend/src/style.css` + estilos inline no `App.vue`. Sem UI lib, sem router, sem Pinia.
-- Dependência `uuid` está declarada mas **não é usada** (usa-se `crypto.randomUUID`).
+- Testes: `npm test` (`node --test`, ficheiros em `test/`; usa `SIGAT_DATA_DIR` temporário). `xlsx` = SheetJS 0.20.3 instalado do CDN oficial (`npm install --allow-remote=all <url>`; o npm 12 bloqueia tarballs remotos por omissão).
 
 ## Estrutura
 ```
