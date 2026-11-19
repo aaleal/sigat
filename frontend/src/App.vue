@@ -115,6 +115,30 @@ function resetEntryForm() {
 const resumoEmprestimos = ref({ ativos: 0, emAtraso: 0, aVencer7dias: 0, semPrazo: 0 });
 let resumoTimer = null;
 
+// Alterar password (obrigatório quando a conta ainda tem a password inicial)
+const senhaModal = reactive({ open: false, obrigatorio: false, atual: '', nova: '', confirmar: '', erro: '', loading: false });
+
+function abrirAlterarPassword(obrigatorio = false) {
+  Object.assign(senhaModal, { open: true, obrigatorio, atual: '', nova: '', confirmar: '', erro: '', loading: false });
+}
+
+async function guardarPassword() {
+  senhaModal.erro = '';
+  if (senhaModal.nova !== senhaModal.confirmar) { senhaModal.erro = 'A confirmação não coincide com a nova password.'; return; }
+  senhaModal.loading = true;
+  try {
+    await apiFetch('/api/auth/password', { method: 'POST', body: JSON.stringify({ atual: senhaModal.atual, nova: senhaModal.nova }) });
+    const eraObrigatorio = senhaModal.obrigatorio;
+    senhaModal.open = false;
+    addToast('Password alterada com sucesso.', 'success');
+    if (eraObrigatorio) await bootstrap();
+  } catch (error) {
+    senhaModal.erro = error.message;
+  } finally {
+    senhaModal.loading = false;
+  }
+}
+
 async function carregarResumoEmprestimos() {
   try { resumoEmprestimos.value = await apiFetch('/api/emprestimos/resumo'); } catch { /* alerta é opcional */ }
 }
@@ -613,6 +637,7 @@ async function loadEntries() {
 
 async function bootstrap() {
   user.value = await apiFetch('/api/auth/me');
+  if (user.value.trocarPassword) { abrirAlterarPassword(true); return; }
   if (!isAdmin.value && currentPage.value === 'accounts') {
     currentPage.value = 'search';
   }
@@ -647,6 +672,7 @@ async function login() {
     loginForm.password = '';
     currentPage.value = 'painel';
 
+    if (payload.user.trocarPassword) { abrirAlterarPassword(true); return; }
     await loadDatasets();
     await loadEntries();
     await loadDistinctOptions();
@@ -1530,6 +1556,27 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+  <!-- Alterar password -->
+  <div v-if="senhaModal.open" class="modal-backdrop" role="dialog" aria-modal="true" @click.self="!senhaModal.obrigatorio && (senhaModal.open = false)">
+    <div class="modal-box" style="max-width:420px;width:96vw">
+      <div class="modal-header"><div class="modal-header-info">
+        <h2 class="modal-title">{{ senhaModal.obrigatorio ? 'Defina uma nova password' : 'Alterar password' }}</h2>
+        <p v-if="senhaModal.obrigatorio" class="modal-message">A password atual é provisória. Escolha uma nova (mínimo 8 caracteres) para continuar.</p>
+      </div></div>
+      <form class="modal-body" style="display:grid;gap:12px;" @submit.prevent="guardarPassword">
+        <div class="field"><label class="field-label" for="pw-atual">Password atual</label><input id="pw-atual" v-model="senhaModal.atual" type="password" autocomplete="current-password" required /></div>
+        <div class="field"><label class="field-label" for="pw-nova">Nova password</label><input id="pw-nova" v-model="senhaModal.nova" type="password" minlength="8" autocomplete="new-password" required /></div>
+        <div class="field"><label class="field-label" for="pw-conf">Confirmar nova password</label><input id="pw-conf" v-model="senhaModal.confirmar" type="password" minlength="8" autocomplete="new-password" required /></div>
+        <p v-if="senhaModal.erro" style="color:var(--danger);font-size:13px;margin:0;">{{ senhaModal.erro }}</p>
+        <div class="modal-footer" style="padding:0;border:0;">
+          <button v-if="!senhaModal.obrigatorio" class="btn btn-secondary" type="button" @click="senhaModal.open = false">Cancelar</button>
+          <button v-else class="btn btn-secondary" type="button" @click="senhaModal.open = false; logout()">Terminar sessão</button>
+          <button class="btn btn-primary" type="submit" :disabled="senhaModal.loading">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ── Entry form modal (create / edit) ─────────────────────────────── -->
   <div v-if="entryFormModal.open" class="modal-backdrop" @click.self="entryFormModal.open = false" role="dialog" aria-modal="true">
     <div class="modal-box" style="max-width:680px;max-height:90vh;display:flex;flex-direction:column;">
@@ -1874,6 +1921,10 @@ onBeforeUnmount(() => {
             <div class="sidebar-user-role">{{ user?.role }}</div>
           </div>
         </div>
+        <button class="btn-logout" :class="{ 'btn-logout-collapsed': sidebarCollapsed }" type="button" style="margin-bottom:6px" @click="abrirAlterarPassword(false)" :title="sidebarCollapsed ? 'Alterar password' : ''">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span v-if="!sidebarCollapsed">Alterar password</span>
+        </button>
         <button class="btn-logout" :class="{ 'btn-logout-collapsed': sidebarCollapsed }" type="button" @click="logout" :title="sidebarCollapsed ? 'Terminar sessão' : ''">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           <span v-if="!sidebarCollapsed">Terminar sessão</span>
@@ -1919,7 +1970,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- ── Empréstimos page ── -->
-        <section v-if="currentPage === 'painel'">
+        <section v-if="currentPage === 'painel' && !senhaModal.obrigatorio">
           <Painel :api="apiFetch" @pesquisar="abrirPesquisaDoPainel" @emprestimos="abrirEmprestimosDoPainel" @erro="addToast($event, 'error')" />
         </section>
 

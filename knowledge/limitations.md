@@ -3,13 +3,12 @@
 Estado: auditoria à leitura do código, não corrigido salvo indicação.
 
 ## Segurança
-- `JWT_SECRET` com default público e valor fixo no `docker-compose.yml`. Trocar em produção.
-- Utilizador `admin`/`admin123` criado automaticamente; sem forçar troca de password.
-- Password mínima de 4 caracteres (só validada ao repor; a criação de utilizador não valida tamanho).
-- `cors()` aberto a todas as origens; sem rate limiting no login; sem HTTPS (assumir proxy externo).
+- `JWT_SECRET` obrigatório em produção (o processo recusa arrancar com o valor por omissão); o `docker-compose.yml` traz um valor de exemplo que deve ser trocado.
+- A conta `admin` nasce com password provisória (`admin123`) e obriga a troca no 1.º acesso; qualquer conta com essa password fica marcada para troca no arranque.
+- Password mínima de 8 caracteres (criação, reposição e alteração); sem recuperação por self-service.
+- `cors()` aberto a todas as origens; limite de tentativas de login em memória (reinicia com o processo); sem HTTPS (assumir proxy externo).
 - Token em `localStorage` (exposto a XSS). O HTML de impressão usa `escHtml`; manter ao alterar templates.
-- Roles `read` leem tudo exceto lixo e histórico (restritos a admin/write na API desde a Fase 2).
-- Tokens não são revogados ao apagar um utilizador/alterar role (valem até expirar, 8h; `/auth/me` devolve 404 se apagado).
+- O token vale 8 h, mas o utilizador e o role são validados na BD a cada pedido (contas apagadas ou com role alterado têm efeito imediato).
 
 ## Dados e consistência
 - SQLite com WAL e transações; a pesquisa carrega a coleção inteira em cache de memória (ok para milhares de documentos; para centenas de milhares usar FTS5).
@@ -28,4 +27,4 @@ Estado: auditoria à leitura do código, não corrigido salvo indicação.
 - Testes: `npm test` (node:test) cobre pesquisa, exportação, API de documentos e migração; sem lint/CI nem testes de UI.
 - `App.vue` monolítico (~3200 linhas) e duplicação de lógica Cartografia/ATURB.
 - README da raiz desatualizado (descreve fluxo TXT / ID1..ID9).
-- O Dockerfile não faz build do frontend (depende do `public/` commitado) e corre como root.
+- O Dockerfile não faz build do frontend (depende do `public/` commitado); a imagem corre como `node` (uid 1000), pelo que a pasta `data/` montada precisa dessas permissões.

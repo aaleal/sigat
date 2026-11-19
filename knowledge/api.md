@@ -10,9 +10,10 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 |---|---|---|---|
 | GET | `/health` | — | |
 | POST | `/auth/login` | — | `{username,password}` → `{token,user}`; username case-insensitive |
-| GET | `/auth/me` | any | |
+| GET | `/auth/me` | any | inclui `trocarPassword` |
+| POST | `/auth/password` | any | `{atual, nova}` (mín. 8); enquanto `trocarPassword` for verdadeiro só esta rota e `/auth/me` respondem (as outras dão 403 com `trocarPassword:true`) |
 | GET/POST | `/users` | admin | criar: `{username,password,role}`; 409 se existir |
-| PATCH | `/users/:id/password` | admin | mínimo 4 caracteres |
+| PATCH | `/users/:id/password` | admin | mínimo 8 caracteres; obriga o utilizador a trocar no próximo login |
 | DELETE | `/users/:id` | admin | não pode apagar-se a si próprio |
 | GET | `/colecoes` | any | `[{id, nome, total}]` (`cartografia`, `aturb`) |
 | GET | `/colecoes/:colecao/campos` | any | definição dos campos (rótulo, peso, numérico, obrigatório, aliases…) |

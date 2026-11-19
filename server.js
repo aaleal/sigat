@@ -46,7 +46,11 @@ async function ensureStorage() {
   db.abrir(dir);
 
   if (utilizadores.contar() === 0) {
-    utilizadores.criar({ username: 'admin', role: 'admin', passwordHash: await bcrypt.hash('admin123', 10) });
+    utilizadores.criar({ username: 'admin', role: 'admin', passwordHash: await bcrypt.hash('admin123', 10), trocarPassword: true });
+  }
+  // Contas ainda com a password inicial conhecida têm de a alterar no primeiro acesso.
+  for (const u of utilizadores.listarComHash()) {
+    if (!u.trocar_password && bcrypt.compareSync('admin123', u.password_hash)) utilizadores.exigirTrocaPassword(u.id);
   }
 
   if (!jaExistia && fs.existsSync(path.join(dir, 'datasets.json'))) {

@@ -1,5 +1,7 @@
 # Plano de melhorias SIGAT (para execução por agente)
 
+> **Estado: implementado (Fases 0–6).** O que foi feito difere ligeiramente do desenho em alguns pontos: a fusão de importações guarda os ficheiros em `data/importacoes/` até serem aplicados/cancelados; `Painel`, `Empréstimos` e `Importações` são componentes Vue; as decisões D1–D8 usaram os valores por omissão. Ver [decisions.md](decisions.md) (16–27).
+
 Documento de trabalho para um agente implementar. Ler antes: [README.md](README.md), [architecture.md](architecture.md), [data-model.md](data-model.md), [limitations.md](limitations.md).
 
 Pedido do negócio:

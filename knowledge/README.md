@@ -3,40 +3,40 @@
 Ler este ficheiro primeiro. Mantê-lo atualizado ao alterar o projeto (ver "Manutenção" no fim).
 
 ## O que é o SIGAT
-Aplicação web interna para **pesquisar, consultar e gerir o inventário de um arquivo** (Banco/CML: cartografia e arquivo técnico de urbanismo). Os dados vêm de ficheiros Excel (`.xlsx`) carregados na aplicação; não há base de dados relacional.
+Aplicação web interna para **pesquisar, consultar e gerir o inventário de um arquivo** (Banco/CML: cartografia e arquivo técnico de urbanismo). Os dados são mantidos numa base SQLite e atualizados a partir de ficheiros Excel (`.xlsx`) através de um fluxo de importação incremental.
 
 Idioma da UI, mensagens de erro da API e dados: **português (pt-PT)**. Manter.
 
 ## Índice
 | Ficheiro | Conteúdo |
 |---|---|
-| [architecture.md](architecture.md) | Stack, estrutura de pastas, build, deploy, armazenamento |
-| [data-model.md](data-model.md) | Tipos de dataset, campos, mapeamento xlsx → campos, importação, Nº Registo |
-| [features.md](features.md) | Funcionalidades por ecrã, perfis/permissões, estados |
-| [api.md](api.md) | Endpoints REST, autenticação, filtros, ordenação |
+| [architecture.md](architecture.md) | Stack, estrutura de pastas, build, deploy, base de dados |
+| [data-model.md](data-model.md) | Campos, mapeamento xlsx → campos, histórico do modelo antigo |
+| [features.md](features.md) | Funcionalidades por ecrã, perfis/permissões, estados, empréstimos, importações, painel |
+| [api.md](api.md) | Endpoints REST |
 | [decisions.md](decisions.md) | Decisões de design e o porquê |
-| [limitations.md](limitations.md) | Limitações conhecidas, dívida técnica, riscos de segurança |
+| [limitations.md](limitations.md) | Limitações conhecidas e dívida técnica |
 | [human_report.md](human_report.md) | Relatório para o negócio (utilizadores finais) |
-| [plano-melhorias.md](plano-melhorias.md) | Plano de implementação: exportação, empréstimos, painel, importação incremental, pesquisa, migração para SQLite |
+| [plano-melhorias.md](plano-melhorias.md) | Plano de implementação das melhorias (concluído; contém o desenho e as decisões D1–D8) |
 
 ## Resumo em 10 linhas
-1. Backend: `server.js` (Node 20 + Express 5), único ficheiro; API REST em `/api/*`, serve também o frontend estático de `public/`.
-2. Frontend: Vue 3 + Vite, **um único componente** `frontend/src/App.vue` (~3500 linhas), sem router nem store (navegação por `currentPage`).
-3. Build do frontend gera `public/` (que **está versionado no git**). Depois de alterar `frontend/`, correr `npm run build:client`.
-4. Persistência: ficheiros JSON em `data/` (gitignored; volume Docker).
-5. Dois tipos de dataset: `cartografia` (xlsx folha `BD`) e `aturb` (xlsx folha `PDF Site`).
-6. Auth: JWT (8h) em `Authorization: Bearer`, token guardado em `localStorage` (`sigat_token`). Roles: `admin`, `write`, `read`.
-7. Pesquisa/filtros/ordenação/paginação são feitos **no servidor**, em memória, sobre o JSON completo do dataset.
-8. Edição: criar/editar/eliminar (lixo com restauro) entradas, alterar **estado** (Arquivo / Em Consulta / Empréstimo), histórico de auditoria por dataset.
-9. "Impressão PDF": carrinho de entradas → janela de impressão do browser.
-10. Credencial inicial `admin` / `admin123` (criada se `data/users.json` não existir).
+1. Backend: `server.js` (Node 22 + Express 5) monta routers de `src/routes/*`; SQL só em `src/db/repos/*`; regras de pesquisa em `src/search.js`/`src/query.js`; importação em `src/import/*`.
+2. Frontend: Vue 3 + Vite; `frontend/src/App.vue` (monolítico, ~3000 linhas) + componentes novos em `frontend/src/components/` (Painel, Emprestimos, Importacoes, EstadoControlo, modais, ExportarBotao).
+3. `public/` (build) **está versionado**; depois de alterar `frontend/`, correr `npm run build:client`.
+4. Persistência: SQLite `data/sigat.db` (gitignored). Duas coleções fixas: `cartografia` e `aturb`; documentos com campos em JSON e campos definidos na tabela `campos` (extensíveis na importação).
+5. Identificador visível: `numero` ("ID SIGAT"), por coleção, nunca reutilizado; identificador interno `id` (UUID) usado nas rotas de mutação.
+6. Auth: JWT (8h) + role lido da BD em cada pedido (`admin`, `write`, `read`); password inicial provisória obriga a troca; limite de tentativas de login.
+7. Empréstimos têm tabela própria (prazo, devolução, atraso, alertas); estado `Empréstimo` só se muda por essas rotas.
+8. Importação a partir do Excel: mapear colunas → comparar (fusão a 3 vias) → decidir → aplicar numa transação; preserva estados, empréstimos e edições.
+9. Painel (página inicial): indicadores, mais consultados, qualidade dos dados, duplicados.
+10. Testes: `npm test` (node:test, BD temporária via `SIGAT_DATA_DIR`).
 
 ## Armadilhas frequentes
-- O `README.md` da raiz está **desatualizado** (descreve o fluxo antigo por TXT/ID1..ID9). A fonte de verdade é esta pasta e o código.
-- `src/parser.js` (TXT) é **legado**: ainda importado por `server.js` mas a UI só aceita xlsx.
-- Cartografia: campo **Localização = coluna "Local" (C)** do xlsx; **Cota** = coluna "Cota". Já houve bug em que ambos mostravam a cota (modal e tabela). Ver [data-model.md](data-model.md).
-- Datasets já importados guardam os campos já processados: alterar um parser **não** altera dados existentes; é preciso reimportar.
 - `public/` é artefacto de build commitado: não editar à mão.
+- `sourceEntryNumber` nas respostas é um alias de `numero`; as mutações usam `id`.
+- Documentos migrados do JSON com edições têm `dados_importados` nulo: diferenças na 1.ª importação são conflitos.
+- `better-sqlite3` 13 exige Node ≥ 22; `xlsx` (SheetJS 0.20.3) instala-se do CDN oficial (`npm install --allow-remote=all <url>` com npm 12).
+- Ao editar `App.vue` com substituições de texto, evitar `oldString` com linhas de traços (`───`): a contagem de caracteres falha.
 
 ## Manutenção
 Ao mudar comportamento, atualizar o ficheiro relevante aqui e a secção "Decisões" quando houver um "porquê" novo.

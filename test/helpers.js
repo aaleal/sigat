@@ -46,8 +46,9 @@ function semear(colecao, lista, utilizador = 'teste') {
   return lista.map((dados) => documentos.criar(colecao, dados, utilizador, { validar: false }));
 }
 
-async function iniciar() {
+async function iniciar({ manterTrocaDePassword = false } = {}) {
   await ensureStorage();
+  if (!manterTrocaDePassword) require('../src/db').getDb().prepare('UPDATE utilizadores SET trocar_password = 0').run();
   await new Promise((resolve) => {
     server = app.listen(0, () => {
       baseUrl = `http://127.0.0.1:${server.address().port}`;

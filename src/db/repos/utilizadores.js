@@ -20,5 +20,7 @@ function definirPassword(id, passwordHash, trocarPassword = false) {
 }
 
 const apagar = (id) => getDb().prepare('DELETE FROM utilizadores WHERE id = ?').run(id).changes > 0;
+const listarComHash = () => getDb().prepare('SELECT * FROM utilizadores').all();
+const exigirTrocaPassword = (id) => getDb().prepare('UPDATE utilizadores SET trocar_password = 1 WHERE id = ?').run(id);
 
-module.exports = { listar, contar, obterPorId, obterPorUsername, criar, definirPassword, apagar, paraApi };
+module.exports = { listar, contar, obterPorId, obterPorUsername, criar, definirPassword, apagar, paraApi, listarComHash, exigirTrocaPassword };

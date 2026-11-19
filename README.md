@@ -1,73 +1,40 @@
-# SIGAT
+# SIGAT — Sistema de Informação do Arquivo
 
-Sistema de informação web para gestão e pesquisa de entradas cartográficas a partir de ficheiros TXT.
-
-## Funcionalidades
-
-- Login obrigatório para acesso ao sistema.
-- Gestão de utilizadores (apenas role `admin`): criar e apagar utilizadores (`read`, `write`, `admin`).
-- Upload de ficheiros `.txt` com validação do formato por entrada (ID1..ID9).
-- Indicação das secções com erro quando o formato está incorreto.
-- Gestão de múltiplas fontes de dados carregadas:
-  - listar metadata (data upload, nome, volume de dados),
-  - editar nome da fonte,
-  - apagar fonte.
-- Consulta/Pesquisa com seleção obrigatória da fonte de dados antes de pesquisar.
-- Gestão de contas (apenas role `admin`): criar utilizadores, apagar utilizadores e alterar password.
+Aplicação web interna para pesquisar, consultar e gerir o inventário de um arquivo (Cartografia e Arquivo Técnico de Urbanismo — ATURB): estados, empréstimos com prazos e alertas, exportação para Excel/CSV, painel de indicadores e atualização incremental a partir de ficheiros Excel.
 
 ## Stack
+- Backend: Node.js 22 + Express 5, SQLite (`better-sqlite3`), JWT.
+- Frontend: Vue 3 + Vite (build estático em `public/`, servido pelo backend).
+- Documentação técnica e de negócio: [knowledge/](knowledge/README.md).
 
-- Backend/API: Node.js + Express
-- Frontend: Vue 3 + Vite (build estático servido pelo backend)
-- Armazenamento: ficheiros JSON em `data/` (sem base de dados relacional)
-
-## Arranque local (sem Docker)
-
+## Arranque local
 ```bash
 npm install
-npm run build:client
-npm start
+npm run build:client   # gera public/
+npm start              # http://localhost:3000
+npm test               # testes (node:test)
+npm run dev:client     # servidor de desenvolvimento do frontend
 ```
+Variáveis: `PORT` (3000), `JWT_SECRET` (obrigatório em produção), `SIGAT_DATA_DIR` (pasta da base de dados, por omissão `./data`), `SIGAT_PRAZO_EMPRESTIMO_DIAS` (30).
 
-Para desenvolvimento do frontend (Vite dev server):
-
-```bash
-npm run dev:client
-```
-
-Aplicação disponível em: `http://localhost:3000`
-
-## Arranque com Docker
-
+## Docker
 ```bash
 docker compose up --build
 ```
+Porta 3000, dados em `./data` (volume). A imagem corre como utilizador `node` (uid 1000): a pasta `data/` do anfitrião tem de ser gravável por esse utilizador (`chown -R 1000:1000 data`). Definir um `JWT_SECRET` próprio no `docker-compose.yml`.
 
-Aplicação disponível em: `http://localhost:3000`
+## Primeiro acesso
+Utilizador `admin` / `admin123`: a aplicação obriga a definir uma nova password (mínimo 8 caracteres) no primeiro login.
 
-## Utilizador inicial
+## Dados antigos (versão com ficheiros JSON)
+```bash
+node scripts/migrar-json-para-sqlite.js            # simulação + relatório
+node scripts/migrar-json-para-sqlite.js --aplicar  # grava em data/sigat.db e move os JSON para data/legacy/
+```
+Faça uma cópia de `data/` antes. Ver [knowledge/architecture.md](knowledge/architecture.md).
 
-- username: `admin`
-- password: `admin123`
+## Atualizar a partir de Excel
+Menu **Importações** (admin): carregar o `.xlsx`, mapear colunas, comparar, decidir diferenças/conflitos e aplicar. Estados, empréstimos e edições feitas na aplicação são preservados. Detalhes em [knowledge/features.md](knowledge/features.md).
 
-> Recomenda-se alterar palavra-passe em ambiente real.
-
-## Estrutura de dados
-
-Os dados são persistidos em ficheiros JSON:
-
-- `data/users.json` (utilizadores)
-- `data/datasets.json` (metadata e base ativa)
-- `data/datasets/<datasetId>.json` (entradas parseadas)
-
-Cada entrada contém campos:
-
-- `id1` cabeçalho
-- `id2` descrição
-- `id3` continuação da descrição (quando aplicável)
-- `id4` referência DMPGU/incorporação
-- `id5` descrição resumo
-- `id6` cota
-- `id7` CDR
-- `id8` TB
-- `id9` nº registo
+## Backup
+Com o servidor parado, copiar a pasta `data/`; a quente: `sqlite3 data/sigat.db ".backup 'copia.db'"`.
