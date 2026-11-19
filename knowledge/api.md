@@ -24,7 +24,7 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 | POST | `/colecoes/:colecao/documentos` | admin,write | cria; valida obrigatórios; ignora campos desconhecidos |
 | GET | `/colecoes/:colecao/eliminados` | admin,write | lixo |
 | GET | `/colecoes/:colecao/historico` | admin,write | mais recente primeiro |
-| GET | `/documentos/:id` | any | detalhe |
+| GET | `/documentos/:id` | any | detalhe; regista uma visualização (`?registar=0` não regista) |
 | GET | `/documentos/:id/historico` | admin,write | |
 | PUT | `/documentos/:id` | admin,write | merge; `''` limpa um campo; não permite esvaziar um obrigatório já preenchido |
 | PATCH | `/documentos/:id/estado` | admin,write | `{estado}` = `-`, `Arquivo` ou `Em Consulta`; `Empréstimo` → 400 e sair de `Empréstimo` → 409 (usar as rotas de empréstimos) |
@@ -37,6 +37,8 @@ Objeto plano: campos da coleção (`cabecalho`, `descricao`, `cota`…) + `id` (
 | POST | `/emprestimos/:id/devolver` | admin,write | `{dataDevolucao?, observacoes?}`; documento passa a `Arquivo` |
 | PATCH | `/emprestimos/:id` | admin,write | prolongar/corrigir (`dataPrevista`, `requisitante`, `entidade`, `contacto`, `observacoes`); só emprestimos ativos |
 | DELETE | `/documentos/:id` | admin,write | soft-delete; 409 se emprestado |
+| GET | `/indicadores` | any | `colecao=cartografia|aturb|todas`, `periodo=30|90|365|tudo`, `incluir=visualizacoes`; `{colecoes[{total, eliminados, porEstado, qualidade[{chave,rotulo,total,filtro}], duplicados}], emprestimos, maisConsultados, ultimaImportacao}` |
+| GET | `/colecoes/:colecao/duplicados` | any | grupos de documentos com a mesma cota+descrição normalizadas |
 | POST | `/documentos/:id/restaurar` | admin,write | |
 | POST | `/colecoes/:colecao/importacoes` | admin | multipart `file` (.xlsx); guarda o ficheiro em `data/importacoes/` e devolve `{importacao, folha, totalLinhas, cabecalhos[{indice,rotulo,amostra}], mapeamento (proposta), campos}`; cancela pré-visualizações pendentes |
 | PUT | `/importacoes/:id/mapeamento` | admin | `{mapeamento:{indiceColuna:{destino, campo?, rotulo?}}}` → compara e devolve `{importacao, resumo}`; destinos: `campo`, `novo`, `idSigat`, `fisica`, `emp_flag`, `emp_saida`, `emp_entrada`, `emp_requisitante`, `ignorar` |

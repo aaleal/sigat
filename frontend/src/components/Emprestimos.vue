@@ -72,7 +72,8 @@ function situacaoTexto(i) {
 
 watch(aba, pesquisar);
 onMounted(carregar);
-defineExpose({ carregar });
+function abrirAba(estado) { if (ABAS.some((a) => a.id === estado)) aba.value = estado; }
+defineExpose({ carregar, abrirAba });
 </script>
 
 <template>

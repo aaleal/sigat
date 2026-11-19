@@ -38,7 +38,7 @@ async function mudarEstado(evento) {
   }
   try {
     await props.api(`/api/documentos/${props.entry.id}/estado`, { method: 'PATCH', body: JSON.stringify({ estado: novo }) });
-    aplicar(await props.api(`/api/documentos/${props.entry.id}`));
+    aplicar(await props.api(`/api/documentos/${props.entry.id}?registar=0`));
   } catch (e) {
     evento.target.value = props.entry.estado;
     emit('erro', `Erro ao atualizar estado: ${e.message}`);

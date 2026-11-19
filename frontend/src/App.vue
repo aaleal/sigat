@@ -1,15 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import ExportarBotao from './components/ExportarBotao.vue';
 import EstadoControlo from './components/EstadoControlo.vue';
 import Emprestimos from './components/Emprestimos.vue';
 import Importacoes from './components/Importacoes.vue';
+import Painel from './components/Painel.vue';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
 const token = ref(localStorage.getItem('sigat_token') || '');
 const user = ref(null);
-const currentPage = ref('search');
+const currentPage = ref('painel');
 
 const datasets = ref([]);
 const selectedDatasetId = ref('');
@@ -38,6 +39,8 @@ const filters = reactive({
   cor: '',
   dimensao: '',
   estado: '',
+  vazios: '',
+  emprestimo: '',
 });
 
 const distinctOptions = ref({ autor: [], ano: [], tipo: [], cor: [], dimensao: [] });
@@ -128,6 +131,32 @@ function iniciarAlertas() {
   resumoTimer = setInterval(carregarResumoEmprestimos, 5 * 60 * 1000);
 }
 
+// Abre a pesquisa de uma coleção com um filtro vindo do painel (estado, campos vazios, empréstimos).
+async function abrirPesquisaDoPainel({ colecao, filtro }) {
+  if (colecao === 'aturb') {
+    clearAturbFilters();
+    Object.assign(aturbFilters, filtro);
+    aturbSortKeys.value = [];
+    aturbPage.value = 1;
+    currentPage.value = 'aturb';
+    await loadAturbEntries();
+  } else {
+    clearSearchFilters();
+    Object.assign(filters, filtro);
+    sortKeys.value = [];
+    page.value = 1;
+    currentPage.value = 'search';
+    await loadEntries();
+  }
+}
+
+async function abrirEmprestimosDoPainel(estado) {
+  currentPage.value = 'emprestimos';
+  await nextTick();
+  emprestimosRef.value?.abrirAba?.(estado);
+}
+const emprestimosRef = ref(null);
+
 // Depois de aplicar uma importação: atualizar totais, listas e alertas.
 async function onImportacaoAplicada() {
   await loadDatasets();
@@ -168,6 +197,8 @@ const aturbFilters = reactive({
   data: '',
   caixaNr: '',
   estado: '',
+  vazios: '',
+  emprestimo: '',
 });
 
 const aturbDistinctOptions = ref({ autor: [], local: [], data: [], caixaNr: [] });
@@ -362,6 +393,7 @@ const activePageTitle = computed(() => {
   if (currentPage.value === 'accounts') return 'Gestão de Contas';
   if (currentPage.value === 'aturb') return 'Arquivo Técnico de Urbanismo (ATURB)';
   if (currentPage.value === 'emprestimos') return 'Empréstimos';
+  if (currentPage.value === 'painel') return 'Painel';
   if (currentPage.value === 'cart') return 'Impressão PDF';
   if (currentPage.value === 'bin') return 'Lixo (entradas eliminadas)';
   if (currentPage.value === 'history') return 'Histórico de Alterações';
@@ -462,6 +494,8 @@ function clearSearchFilters() {
   filters.cor = '';
   filters.dimensao = '';
   filters.estado = '';
+  filters.vazios = '';
+  filters.emprestimo = '';
 }
 
 async function apiFetch(url, options = {}) {
@@ -511,6 +545,15 @@ async function loadDistinctOptions() {
 function openEntryModal(entry) {
   entryModal.entry = entry;
   entryModal.open = true;
+  registarVisualizacao(entry, (fresco) => { if (entryModal.entry === entry) entryModal.entry = fresco; });
+}
+
+// Regista a consulta e atualiza o detalhe com os dados mais recentes do servidor.
+async function registarVisualizacao(entry, aplicar) {
+  try {
+    const fresco = await apiFetch(`/api/documentos/${entry.id}`);
+    aplicar(fresco);
+  } catch { /* o detalhe já está aberto com os dados da lista */ }
 }
 
 async function loadUsers() {
@@ -602,7 +645,7 @@ async function login() {
 
     loginForm.username = '';
     loginForm.password = '';
-    currentPage.value = 'search';
+    currentPage.value = 'painel';
 
     await loadDatasets();
     await loadEntries();
@@ -623,7 +666,7 @@ function logout() {
   resumoEmprestimos.value = { ativos: 0, emAtraso: 0, aVencer7dias: 0, semPrazo: 0 };
   token.value = '';
   user.value = null;
-  currentPage.value = 'search';
+  currentPage.value = 'painel';
   selectedDatasetId.value = '';
   datasets.value = [];
   entries.value = [];
@@ -756,6 +799,8 @@ function clearAturbFilters() {
   aturbFilters.data = '';
   aturbFilters.caixaNr = '';
   aturbFilters.estado = '';
+  aturbFilters.vazios = '';
+  aturbFilters.emprestimo = '';
 }
 
 function buildAturbEntriesQuery() {
@@ -863,6 +908,7 @@ function getAturbSortEntry(key) {
 function openAturbEntryModal(entry) {
   aturbEntryModal.entry = entry;
   aturbEntryModal.open = true;
+  registarVisualizacao(entry, (fresco) => { if (aturbEntryModal.entry === entry) aturbEntryModal.entry = fresco; });
 }
 
 function cartKey(datasetId, entry) {
@@ -1699,6 +1745,18 @@ onBeforeUnmount(() => {
 
         <button
           type="button"
+          :class="['nav-btn', { active: currentPage === 'painel', 'nav-btn-collapsed': sidebarCollapsed }]"
+          @click="switchPage('painel')"
+          :title="sidebarCollapsed ? 'Painel' : ''"
+        >
+          <span class="nav-btn-icon">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          </span>
+          <span v-if="!sidebarCollapsed">Painel</span>
+        </button>
+
+        <button
+          type="button"
           :class="['nav-btn', { active: currentPage === 'search', 'nav-btn-collapsed': sidebarCollapsed }]"
           @click="switchPage('search')"
           :title="sidebarCollapsed ? 'Cartografia' : ''"
@@ -1861,8 +1919,13 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- ── Empréstimos page ── -->
+        <section v-if="currentPage === 'painel'">
+          <Painel :api="apiFetch" @pesquisar="abrirPesquisaDoPainel" @emprestimos="abrirEmprestimosDoPainel" @erro="addToast($event, 'error')" />
+        </section>
+
         <section v-if="currentPage === 'emprestimos'">
           <Emprestimos
+            ref="emprestimosRef"
             :api="apiFetch"
             :token="token"
             :can-edit="canEditEstado"
@@ -1964,6 +2027,8 @@ onBeforeUnmount(() => {
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
                 <span>{{ selectedDataset?.name }}</span>
                 <span>{{ totalEntries.toLocaleString('pt-PT') }} resultado{{ totalEntries !== 1 ? 's' : '' }}</span>
+                <span v-if="filters.vazios" class="badge" title="Filtro vindo do painel">Campo vazio: {{ filters.vazios }}</span>
+                <span v-if="filters.emprestimo" class="badge" title="Filtro vindo do painel">Empréstimos: {{ filters.emprestimo === 'atraso' ? 'em atraso' : 'ativos' }}</span>
                 <span v-if="filters.q.trim() && ordenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
                 <button v-else-if="filters.q.trim() && sortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="sortKeys = []; page = 1; loadEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
@@ -2359,6 +2424,8 @@ onBeforeUnmount(() => {
               <div class="search-meta-bar" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--border); border-top: none; border-left: none; border-right: none;">
                 <span>{{ aturbSelectedDataset?.name }}</span>
                 <span>{{ aturbTotalEntries.toLocaleString('pt-PT') }} resultado{{ aturbTotalEntries !== 1 ? 's' : '' }}</span>
+                <span v-if="aturbFilters.vazios" class="badge" title="Filtro vindo do painel">Campo vazio: {{ aturbFilters.vazios }}</span>
+                <span v-if="aturbFilters.emprestimo" class="badge" title="Filtro vindo do painel">Empréstimos: {{ aturbFilters.emprestimo === 'atraso' ? 'em atraso' : 'ativos' }}</span>
                 <span v-if="aturbFilters.q.trim() && aturbOrdenacao === 'relevancia'" class="badge" title="Resultados ordenados pela relevância da pesquisa. Clique num cabeçalho para ordenar por coluna.">Ordenado por relevância</span>
                 <button v-else-if="aturbFilters.q.trim() && aturbSortKeys.length" class="btn btn-ghost btn-sm" type="button" @click="aturbSortKeys = []; aturbPage = 1; loadAturbEntries()">Voltar à ordenação por relevância</button>
                 <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">

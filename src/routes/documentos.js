@@ -8,6 +8,7 @@ const { queryEntries, paramsDePesquisa } = require('../query');
 const { normalizar } = require('../search');
 const { gerarExportacao, LIMITE_LINHAS } = require('../export');
 const emprestimos = require('../db/repos/emprestimos');
+const indicadores = require('../db/repos/indicadores');
 
 const router = express.Router();
 
@@ -157,7 +158,9 @@ router.get('/colecoes/:colecao/historico', colecaoValida, gestao, (req, res) => 
 
 router.get('/documentos/:id', comErros(async (req, res) => {
   const doc = documentoOu404(req, res);
-  if (doc) res.json(doc);
+  if (!doc) return;
+  if (req.query.registar !== '0') indicadores.registarVisualizacao(doc.id, req.user.username);
+  res.json(doc);
 }));
 
 router.get('/documentos/:id/historico', gestao, comErros(async (req, res) => {
